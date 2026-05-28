@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OMP cmux browser tools smoke</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; line-height: 1.5; }
+    label, input, button { display: block; margin-top: 0.75rem; }
+    input { min-width: 24rem; padding: 0.4rem; }
+    button { padding: 0.5rem 0.75rem; }
+    #result { margin-top: 1rem; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <h1>OMP cmux browser tools smoke fixture</h1>
+  <p id="fixture-intro">This deterministic page proves visible cmux browser tool interaction.</p>
+  <label for="marker-input">Marker</label>
+  <input id="marker-input" name="marker" type="text" value="" placeholder="enter marker text">
+  <button id="apply-marker" type="button">Apply marker</button>
+  <p id="result" aria-live="polite">No marker applied yet.</p>
+  <p id="file-marker-anthropic-opus-48-actual">Visible file marker: anthropic-opus-48-file-edit-actual</p>
+  <script>
+    const input = document.querySelector("#marker-input");
+    const result = document.querySelector("#result");
+    document.querySelector("#apply-marker").addEventListener("click", () => {
+      const marker = input.value.trim();
+      result.textContent = marker ? `Applied marker: ${marker}` : "No marker applied yet.";
+    });
+  </script>
+</body>
+</html>

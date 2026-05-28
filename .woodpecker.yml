@@ -1,0 +1,10 @@
+when:
+  - event: push
+  - event: pull_request
+
+steps:
+  test:
+    image: oven/bun:1.2
+    commands:
+      - bun install
+      - bun test tests/*.test.ts

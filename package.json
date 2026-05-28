@@ -1,0 +1,52 @@
+{
+  "name": "omp-cmux-browser-tools",
+  "version": "0.1.0",
+  "description": "OMP/Pi extension and marketplace custom tools for safe native cmux browser workflows.",
+  "type": "module",
+  "license": "MIT",
+  "homepage": "https://github.com/usr-bin-roygbiv/omp-cmux-browser-tools#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/usr-bin-roygbiv/omp-cmux-browser-tools.git"
+  },
+  "bugs": {
+    "url": "https://github.com/usr-bin-roygbiv/omp-cmux-browser-tools/issues"
+  },
+  "keywords": [
+    "omp",
+    "pi",
+    "oh-my-pi",
+    "cmux",
+    "browser",
+    "agent",
+    "extension",
+    "plugin"
+  ],
+  "exports": {
+    ".": "./extensions/index.ts",
+    "./tools/cmux-browser-tools": "./tools/cmux-browser-tools/index.ts"
+  },
+  "files": [
+    "extensions",
+    "tools",
+    ".claude-plugin",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "bun test tests/*.test.ts"
+  },
+  "peerDependencies": {
+    "@oh-my-pi/pi-coding-agent": ">=15.5.7 <16"
+  },
+  "omp": {
+    "extensions": [
+      "./extensions/index.ts"
+    ]
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/index.ts"
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "omp-cmux-browser-tools",
+  "version": "0.1.0",
+  "description": "Safe native cmux browser tools for OMP and Pi coding-agent sessions.",
+  "author": {
+    "name": "usr_bin_roygbiv",
+    "email": "roy@davai.fyi"
+  },
+  "homepage": "https://github.com/usr-bin-roygbiv/omp-cmux-browser-tools",
+  "repository": "https://github.com/usr-bin-roygbiv/omp-cmux-browser-tools",
+  "license": "MIT"
+}
