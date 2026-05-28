@@ -5,7 +5,7 @@
 The package supports two current install surfaces, both of which expose the same six model-callable OMP tools:
 
 - package/plugin installs through `package.json` `omp.extensions` and `pi.extensions`; the extension calls `pi.registerTool(...)`
-- OMP marketplace installs through the Claude-compatible custom-tool factory in `tools/cmux-browser-tools/index.ts`
+- OMP marketplace installs through the custom-tool factory in `tools/cmux-browser-tools/index.ts`
 
 It is published from the anonymous Roy GitHub identity at `usr-bin-roygbiv/omp-cmux-browser-tools`. It is not published to npm.
 
@@ -42,23 +42,16 @@ omp plugin install omp-cmux-browser-tools
 
 Use the equivalent `pi plugin install ...` command in Pi-only environments. Package installs load `./extensions/index.ts` from the `omp.extensions` or `pi.extensions` manifest entry, and that extension registers the six tools with `pi.registerTool(...)`.
 
-### Marketplace install
+### OMP marketplace install
 
-After the official marketplace entry is accepted, install it with either interactive marketplace commands:
-
-```text
-/marketplace add anthropics/claude-plugins-official
-/marketplace install omp-cmux-browser-tools@claude-plugins-official
-```
-
-or CLI equivalents:
+No public marketplace listing is active yet. For now, keep publishing updates to this GitHub repository and install through an owned OMP marketplace catalog once one is configured:
 
 ```bash
-omp plugin marketplace add anthropics/claude-plugins-official
-omp plugin install omp-cmux-browser-tools@claude-plugins-official
+omp plugin marketplace add <omp-marketplace-catalog>
+omp plugin install omp-cmux-browser-tools@<omp-marketplace-name>
 ```
 
-Marketplace installs load the Claude-compatible custom-tool factory at `tools/cmux-browser-tools/index.ts`.
+Marketplace installs load the custom-tool factory at `tools/cmux-browser-tools/index.ts`.
 
 ### Local development load
 
