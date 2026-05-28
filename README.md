@@ -2,12 +2,16 @@
 
 `omp-cmux-browser-tools` exposes a small, safe browser tool layer over native `cmux browser` surfaces for OMP and Pi coding-agent sessions.
 
-The package supports two current install surfaces:
+The package supports two current install surfaces, both of which expose the same six model-callable OMP tools:
 
-- package/plugin installs through `package.json` `omp.extensions` and `pi.extensions`
-- OMP marketplace installs through the Claude-compatible custom-tool wrapper in `tools/cmux-browser-tools/index.ts`
+- package/plugin installs through `package.json` `omp.extensions` and `pi.extensions`; the extension calls `pi.registerTool(...)`
+- OMP marketplace installs through the Claude-compatible custom-tool factory in `tools/cmux-browser-tools/index.ts`
 
 It is published from the anonymous Roy GitHub identity at `usr-bin-roygbiv/omp-cmux-browser-tools`. It is not published to npm.
+
+## Tool-call exposure
+
+After installation, these are OMP/Pi tool calls, not slash commands or prose-only prompt guidance. OMP discovers the plugin, loads the custom-tool factory or extension entrypoint, and sends each tool's description plus strict parameter schema through the normal model tool registry. No separate system-prompt snippet is required for agents to know the tools exist.
 
 ## Tools
 
@@ -30,21 +34,28 @@ It is published from the anonymous Roy GitHub identity at `usr-bin-roygbiv/omp-c
 
 ### OMP/Pi package install
 
-Install directly from GitHub when your OMP/Pi build supports Git plugin sources:
+This repository is not published to npm yet. The package manifest is prepared for package installs once published through an npm-compatible plugin source:
 
 ```bash
-omp install github:usr-bin-roygbiv/omp-cmux-browser-tools
+omp plugin install omp-cmux-browser-tools
 ```
 
-Use the equivalent `pi install ...` command in Pi-only environments. Package installs load `./extensions/index.ts` from the `omp.extensions` or `pi.extensions` manifest entry.
+Use the equivalent `pi plugin install ...` command in Pi-only environments. Package installs load `./extensions/index.ts` from the `omp.extensions` or `pi.extensions` manifest entry, and that extension registers the six tools with `pi.registerTool(...)`.
 
 ### Marketplace install
 
-After the official marketplace entry is accepted:
+After the official marketplace entry is accepted, install it with either interactive marketplace commands:
+
+```text
+/marketplace add anthropics/claude-plugins-official
+/marketplace install omp-cmux-browser-tools@claude-plugins-official
+```
+
+or CLI equivalents:
 
 ```bash
-omp marketplace add anthropics/claude-plugins-official
-omp install omp-cmux-browser-tools@claude-plugins-official
+omp plugin marketplace add anthropics/claude-plugins-official
+omp plugin install omp-cmux-browser-tools@claude-plugins-official
 ```
 
 Marketplace installs load the Claude-compatible custom-tool factory at `tools/cmux-browser-tools/index.ts`.
