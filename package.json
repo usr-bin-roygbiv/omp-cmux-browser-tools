@@ -1,7 +1,7 @@
 {
   "name": "omp-cmux-browser-tools",
   "version": "0.1.0",
-  "description": "OMP/Pi extension and marketplace custom tools for safe native cmux browser workflows.",
+  "description": "OMP/Pi extension and custom tools for safe native cmux help and browser workflows.",
   "type": "module",
   "license": "MIT",
   "homepage": "https://github.com/usr-bin-roygbiv/omp-cmux-browser-tools#readme",

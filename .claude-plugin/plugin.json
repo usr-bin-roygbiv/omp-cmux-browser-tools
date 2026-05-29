@@ -1,7 +1,7 @@
 {
   "name": "omp-cmux-browser-tools",
   "version": "0.1.0",
-  "description": "Safe native cmux browser tools for OMP and Pi coding-agent sessions.",
+  "description": "Safe native cmux help and browser tools for OMP and Pi coding-agent sessions.",
   "author": {
     "name": "usr_bin_roygbiv",
     "email": "roy@davai.fyi"

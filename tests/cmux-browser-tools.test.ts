@@ -8,6 +8,7 @@ import cmuxBrowserTools, {
   buildCmuxBrowserSnapshotArgs,
   buildCmuxBrowserToolSpecs,
   buildCmuxBrowserWaitArgs,
+  buildCmuxHelpArgs,
   runCmuxCommand,
   sanitizeToolText,
   type CmuxRunner,
@@ -75,6 +76,16 @@ function createFakeZod() {
   };
 }
 
+const EXPECTED_TOOL_NAMES = [
+  "cmux_browser_click",
+  "cmux_browser_fill",
+  "cmux_browser_get_url",
+  "cmux_browser_open",
+  "cmux_browser_snapshot",
+  "cmux_browser_wait",
+  "cmux_help",
+];
+
 describe("cmux browser command builders", () => {
   test("builds open args for http(s) URLs with bounded refs", () => {
     expect(buildCmuxBrowserOpenArgs({ url: "https://example.com/path?q=1", workspace: "workspace:2", window: "window:3", focus: true })).toEqual([
@@ -128,7 +139,7 @@ describe("cmux browser command builders", () => {
       "#apply-marker",
       "--snapshot-after",
     ]);
-    expect(buildCmuxBrowserFillArgs({ surface: "surface:7", target: "#marker-input", text: "modified-by-opus-cmux-tool" })).toEqual([
+    expect(buildCmuxBrowserFillArgs({ surface: "surface:7", target: "#marker-input", text: "modified-by-omp-cmux-tool" })).toEqual([
       "browser",
       "--surface",
       "surface:7",
@@ -136,7 +147,7 @@ describe("cmux browser command builders", () => {
       "--selector",
       "#marker-input",
       "--text",
-      "modified-by-opus-cmux-tool",
+      "modified-by-omp-cmux-tool",
       "--snapshot-after",
     ]);
   });
@@ -146,25 +157,48 @@ describe("cmux browser command builders", () => {
       args: ["browser", "--surface", "surface:3", "wait", "--load-state", "interactive", "--selector", "#marker-input", "--timeout-ms", "60000"],
       timeoutMs: 60_000,
     });
+    expect(buildCmuxBrowserWaitArgs({ surface: "surface:3", function: "document.readyState === 'complete'" })).toEqual({
+      args: ["browser", "--surface", "surface:3", "wait", "--function", "document.readyState === 'complete'", "--timeout-ms", "5000"],
+      timeoutMs: 5_000,
+    });
     expect(buildCmuxBrowserWaitArgs({ surface: "surface:3" })).toEqual({
       args: ["browser", "--surface", "surface:3", "wait", "--load-state", "complete", "--timeout-ms", "5000"],
       timeoutMs: 5_000,
     });
     expect(() => buildCmuxBrowserWaitArgs({ surface: "surface:3", loadState: "networkidle" })).toThrow("interactive or complete");
   });
+
+  test("builds read-only cmux help commands", () => {
+    expect(buildCmuxHelpArgs({})).toEqual(["help"]);
+    expect(buildCmuxHelpArgs({ command: "browser wait" })).toEqual(["browser", "wait", "--help"]);
+    expect(() => buildCmuxHelpArgs({ command: "browser; touch /tmp/owned" })).toThrow("cmux command tokens");
+  });
 });
 
 describe("cmux command execution", () => {
   test("uses argv arrays with global json flag and preserves unsafe-looking input as data", async () => {
     const { calls, runner } = recordingRunner('{"surface":"surface:12"}');
-    const [tool] = buildCmuxBrowserToolSpecs({ runner });
+    const open = buildCmuxBrowserToolSpecs({ runner }).find((spec) => spec.name === "cmux_browser_open")!;
     const unsafeUrl = "https://example.com/a;touch%20/tmp/owned";
-    const result = await tool.execute("call-1", { url: unsafeUrl });
+    const result = await open.execute("call-1", { url: unsafeUrl });
 
     expect(result.ok).toBe(true);
     expect(calls).toHaveLength(1);
     expect(calls[0].command).toBe("cmux");
     expect(calls[0].args).toEqual(["--json", "browser", "open", unsafeUrl, "--focus", "false"]);
+  });
+
+  test("cmux_help executes without the global json flag", async () => {
+    const { calls, runner } = recordingRunner("browser help output");
+    const help = buildCmuxBrowserToolSpecs({ runner }).find((spec) => spec.name === "cmux_help")!;
+
+    const result = await help.execute("call-help", { command: "browser" });
+
+    expect(result.ok).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].command).toBe("cmux");
+    expect(calls[0].args).toEqual(["browser", "--help"]);
+    expect(result.content[0].text).toBe("browser help output");
   });
 
   test("parses JSON stdout and falls back to redacted text", () => {
@@ -194,16 +228,9 @@ describe("cmux command execution", () => {
 });
 
 describe("tool registration", () => {
-  test("registers the six first-cut browser tools", () => {
+  test("registers the cmux help and browser tools", () => {
     const specs = buildCmuxBrowserToolSpecs();
-    expect(specs.map((spec) => spec.name).sort()).toEqual([
-      "cmux_browser_click",
-      "cmux_browser_fill",
-      "cmux_browser_get_url",
-      "cmux_browser_open",
-      "cmux_browser_snapshot",
-      "cmux_browser_wait",
-    ]);
+    expect(specs.map((spec) => spec.name).sort()).toEqual(EXPECTED_TOOL_NAMES);
 
     const mock = createMockPi();
     cmuxBrowserTools(mock.pi as any);
@@ -223,18 +250,22 @@ describe("tool registration", () => {
   });
 });
 
-describe("marketplace custom-tool wrapper", () => {
-  test("exposes the same six browser tools as custom tools", () => {
+describe("custom-tool wrapper", () => {
+  test("exposes the same cmux help and browser tools as custom tools", () => {
     const specs = buildCmuxBrowserToolSpecs();
     const tools = buildCmuxBrowserCustomTools({ zod: createFakeZod() as any });
 
-    expect(tools.map((tool) => tool.name).sort()).toEqual(specs.map((spec) => spec.name).sort());
+    expect(tools.map((tool) => tool.name).sort()).toEqual(EXPECTED_TOOL_NAMES);
     expect(tools.every((tool) => tool.strict === true)).toBe(true);
 
     const open = tools.find((tool) => tool.name === "cmux_browser_open")!;
     expect((open.parameters as any).strictValue).toBe(true);
     expect((open.parameters as any).shape.url.kind).toBe("string");
     expect((open.parameters as any).shape.url.maxValue).toBe(2048);
+
+    const help = tools.find((tool) => tool.name === "cmux_help")!;
+    expect((help.parameters as any).strictValue).toBe(true);
+    expect((help.parameters as any).shape.command.kind).toBe("string");
   });
 
   test("uses the shared cmux argv builders for custom-tool execution", async () => {

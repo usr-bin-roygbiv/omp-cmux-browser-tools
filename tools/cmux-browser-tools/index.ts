@@ -45,6 +45,7 @@ const MAX_URL_CHARS = 2_048;
 const MAX_TARGET_CHARS = 1_024;
 const MAX_TEXT_CHARS = 4_000;
 const MAX_WAIT_TIMEOUT_MS = 60_000;
+const MAX_HELP_COMMAND_CHARS = 128;
 
 function requiredString(zod: ZodApi, description: string, maxLength: number): ZodStringLike {
 	return zod.string().max(maxLength).describe(description);
@@ -64,6 +65,10 @@ function optionalInteger(zod: ZodApi, description: string, min: number, max: num
 
 function schemaForTool(zod: ZodApi, name: string): ZodObjectLike {
 	switch (name) {
+		case "cmux_help":
+			return zod.object({
+				command: optionalString(zod, "Optional cmux command or subcommand path, such as browser or browser wait", MAX_HELP_COMMAND_CHARS),
+			}).strict();
 		case "cmux_browser_open":
 			return zod.object({
 				url: requiredString(zod, "Absolute http(s) URL to open", MAX_URL_CHARS),
@@ -90,6 +95,7 @@ function schemaForTool(zod: ZodApi, name: string): ZodObjectLike {
 				text: optionalString(zod, "Optional visible text", MAX_TEXT_CHARS),
 				url: optionalString(zod, "Optional exact URL", MAX_URL_CHARS),
 				urlContains: optionalString(zod, "Optional URL substring", MAX_URL_CHARS),
+				function: optionalString(zod, "Optional JavaScript wait condition", MAX_TEXT_CHARS),
 				timeoutMs: optionalInteger(zod, "Timeout in milliseconds", 100, MAX_WAIT_TIMEOUT_MS),
 			}).strict();
 		case "cmux_browser_click":

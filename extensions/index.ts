@@ -42,6 +42,36 @@ const SURFACE_RE = /^surface:\d+$/;
 const WORKSPACE_RE = /^workspace:\d+$/;
 const WINDOW_RE = /^window:\d+$/;
 const LOAD_STATES = new Set(["interactive", "complete"]);
+const MAX_HELP_COMMAND_CHARS = 128;
+const HELP_COMMAND_TOKEN_RE = /^[a-z][a-z0-9_-]*$/;
+
+const CMUX_HELP_PREAMBLE = `cmux commands by category:
+
+Terminal I/O:
+  read-screen   Capture terminal screen content
+  send          Send text input to a pane
+  send-key      Send a key sequence to a pane
+
+Layout:
+  tree, list-workspaces, list-panes
+  new-workspace, new-pane, new-split, close-surface
+
+Notifications and sidebar:
+  notify, set-status, clear-status, list-status
+
+Browser automation:
+  browser open/goto/back/forward/reload/url
+  browser snapshot/screenshot
+  browser click/dblclick/hover/focus/fill/type/press/select/scroll
+  browser wait/find/get/is/eval/console/errors/network/tab/dialog/state
+
+Markdown:
+  markdown open
+
+Session info:
+  identify, info, capabilities
+
+Call cmux_help with command "browser" or "browser wait" for detailed syntax. cmux_help is reference-only; this plugin executes only the registered cmux_help and cmux_browser_* tools, not arbitrary cmux commands. Most browser subcommands accept --surface <id>, and action commands accept --snapshot-after.`;
 
 type CmuxToolOptions = { env?: Env; runner?: CmuxRunner };
 
@@ -194,6 +224,41 @@ export function runCmuxCommand(args: string[], options: CmuxToolOptions & { time
 	}
 }
 
+export function buildCmuxHelpArgs(input: ToolInput): string[] {
+	const command = stringInput(input, "command");
+	if (command === undefined || command.trim() === "") return ["help"];
+	if (command.length > MAX_HELP_COMMAND_CHARS) throw new Error("command is too long");
+	const tokens = command.trim().split(/\s+/);
+	if (tokens.length > 4) throw new Error("command must contain at most four cmux command tokens");
+	for (const token of tokens) {
+		if (!HELP_COMMAND_TOKEN_RE.test(token)) throw new Error("command must contain only cmux command tokens");
+	}
+	return [...tokens, "--help"];
+}
+
+export function runCmuxTextCommand(args: string[], options: CmuxToolOptions & { timeoutMs?: number; preamble?: string } = {}): ToolResult {
+	const timeoutMs = clampInt(options.timeoutMs, DEFAULT_COMMAND_TIMEOUT_MS, 100, MAX_COMMAND_TIMEOUT_MS);
+	const runner = options.runner ?? defaultRunner;
+	try {
+		const result = runner("cmux", args, { env: options.env ?? process.env, timeoutMs });
+		const stdout = sanitizeToolText(String(result.stdout ?? ""));
+		const stderr = sanitizeToolText(String(result.stderr ?? ""));
+		const ok = result.status === 0 && !result.error;
+		const details = {
+			command: "cmux",
+			args,
+			exitCode: result.status,
+			stdout,
+			stderr,
+			...(result.error ? { error: result.error.message } : {}),
+		};
+		const text = [options.preamble, stdout, stderr].filter(Boolean).join("\n\n");
+		return toolResult(ok, details, text);
+	} catch (error) {
+		return toolResult(false, { command: "cmux", args, error: error instanceof Error ? error.message : String(error) });
+	}
+}
+
 export function buildCmuxBrowserOpenArgs(input: ToolInput): string[] {
 	const args = ["browser", "open", httpUrl(input)];
 	optionalRef(input, "workspace", args);
@@ -232,6 +297,8 @@ export function buildCmuxBrowserWaitArgs(input: ToolInput): { args: string[]; ti
 	if (url !== undefined) args.push("--url", nonemptyString(input, "url", "url", MAX_URL_CHARS));
 	const urlContains = stringInput(input, "urlContains");
 	if (urlContains !== undefined) args.push("--url-contains", nonemptyString(input, "urlContains", "urlContains", MAX_URL_CHARS));
+	const jsFunction = stringInput(input, "function");
+	if (jsFunction !== undefined) args.push("--function", nonemptyString(input, "function", "function", MAX_TEXT_CHARS));
 	if (args[4] === undefined) args.push("--load-state", "complete");
 	args.push("--timeout-ms", String(timeoutMs));
 	return { args, timeoutMs };
@@ -257,6 +324,21 @@ function executeBuiltArgs(build: () => string[] | { args: string[]; timeoutMs: n
 
 export function buildCmuxBrowserToolSpecs(options: CmuxToolOptions = {}): ToolSpec[] {
 	return [
+		{
+			name: "cmux_help",
+			label: "cmux help",
+			description: "Look up cmux CLI reference for terminal I/O, layout, browser automation, notifications, markdown, and session commands. Call this before using unfamiliar cmux commands.",
+			parameters: schema({ command: str("Optional cmux command or subcommand path, such as browser or browser wait", MAX_HELP_COMMAND_CHARS) }),
+			scopes: ["cmux", "read-only"],
+			execute: async (_toolCallId, input) => {
+				try {
+					const args = buildCmuxHelpArgs(input);
+					return runCmuxTextCommand(args, { ...options, preamble: args.length === 1 && args[0] === "help" ? CMUX_HELP_PREAMBLE : undefined });
+				} catch (error) {
+					return toolResult(false, { error: error instanceof Error ? error.message : String(error) });
+				}
+			},
+		},
 		{
 			name: "cmux_browser_open",
 			label: "cmux browser open",
@@ -284,8 +366,8 @@ export function buildCmuxBrowserToolSpecs(options: CmuxToolOptions = {}): ToolSp
 		{
 			name: "cmux_browser_wait",
 			label: "cmux browser wait",
-			description: "Wait for load state, selector, text, or URL condition on an explicit cmux browser surface.",
-			parameters: schema({ surface: str("cmux browser surface ref or UUID", 128), loadState: str("interactive or complete", 16), selector: str("Optional CSS selector/ref", MAX_TARGET_CHARS), text: str("Optional visible text", MAX_TEXT_CHARS), url: str("Optional exact URL", MAX_URL_CHARS), urlContains: str("Optional URL substring", MAX_URL_CHARS), timeoutMs: integer("Timeout in milliseconds", 100, MAX_WAIT_TIMEOUT_MS) }, ["surface"]),
+			description: "Wait for load state, selector, text, URL, or JavaScript condition on an explicit cmux browser surface.",
+			parameters: schema({ surface: str("cmux browser surface ref or UUID", 128), loadState: str("interactive or complete", 16), selector: str("Optional CSS selector/ref", MAX_TARGET_CHARS), text: str("Optional visible text", MAX_TEXT_CHARS), url: str("Optional exact URL", MAX_URL_CHARS), urlContains: str("Optional URL substring", MAX_URL_CHARS), function: str("Optional JavaScript wait condition", MAX_TEXT_CHARS), timeoutMs: integer("Timeout in milliseconds", 100, MAX_WAIT_TIMEOUT_MS) }, ["surface"]),
 			scopes: ["cmux", "browser", "visible-ui"],
 			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxBrowserWaitArgs(input), options),
 		},
