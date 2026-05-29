@@ -1,0 +1,11 @@
+[
+  {
+    "id": "apply-marker-with-visible-cmux-tools",
+    "title": "Apply a marker through OMP cmux browser tools",
+    "path": "/fixture.html?view=provider-task",
+    "marker": "provider-browsergym-marker",
+    "expectedText": "Applied marker: provider-browsergym-marker",
+    "requiredToolPrefix": "cmux_browser_",
+    "prompt": "Open the BrowserGym cmux fixture URL in the supplied scratch workspace. Use cmux browser tools to snapshot the page, fill #marker-input with provider-browsergym-marker, click #apply-marker, verify the applied marker in page text, capture a screenshot with cmux_browser_screenshot, and return only a short JSON object containing the surface ref and whether the marker was applied."
+  }
+]

@@ -29,12 +29,19 @@
   "files": [
     "extensions",
     "tools",
+    "evals",
+    "scripts",
+    "smoke",
     ".claude-plugin",
+    ".githooks",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "test": "bun test tests/*.test.ts"
+    "test": "bun test tests/*.test.ts",
+    "test:interactive": "bun scripts/run-interactive-cmux-tools-smoke.mjs",
+    "eval:cmux-browsergym": "bun scripts/run-cmux-browsergym-eval.mjs",
+    "precommit": "bun scripts/precommit.mjs"
   },
   "peerDependencies": {
     "@oh-my-pi/pi-coding-agent": ">=15.5.7 <16"

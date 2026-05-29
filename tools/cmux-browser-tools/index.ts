@@ -44,7 +44,12 @@ type CmuxBrowserCustomToolOptions = {
 const MAX_URL_CHARS = 2_048;
 const MAX_TARGET_CHARS = 1_024;
 const MAX_TEXT_CHARS = 4_000;
+const MAX_KEY_CHARS = 64;
+const MAX_ATTR_CHARS = 128;
+const MAX_SCREENSHOT_PATH_CHARS = 512;
 const MAX_WAIT_TIMEOUT_MS = 60_000;
+const MAX_FIND_INDEX = 1_000;
+const MAX_SCROLL_DELTA = 5_000;
 const MAX_HELP_COMMAND_CHARS = 128;
 
 function requiredString(zod: ZodApi, description: string, maxLength: number): ZodStringLike {
@@ -80,6 +85,17 @@ function schemaForTool(zod: ZodApi, name: string): ZodObjectLike {
 			return zod.object({
 				surface: requiredString(zod, "cmux browser surface ref or UUID", 128),
 			}).strict();
+		case "cmux_browser_goto":
+			return zod.object({
+				surface: requiredString(zod, "cmux browser surface ref or UUID", 128),
+				url: requiredString(zod, "Absolute http(s) URL to navigate to", MAX_URL_CHARS),
+			}).strict();
+		case "cmux_browser_back":
+		case "cmux_browser_forward":
+		case "cmux_browser_reload":
+			return zod.object({
+				surface: requiredString(zod, "cmux browser surface ref or UUID", 128),
+			}).strict();
 		case "cmux_browser_snapshot":
 			return zod.object({
 				surface: requiredString(zod, "cmux browser surface ref or UUID", 128),
@@ -95,8 +111,32 @@ function schemaForTool(zod: ZodApi, name: string): ZodObjectLike {
 				text: optionalString(zod, "Optional visible text", MAX_TEXT_CHARS),
 				url: optionalString(zod, "Optional exact URL", MAX_URL_CHARS),
 				urlContains: optionalString(zod, "Optional URL substring", MAX_URL_CHARS),
-				function: optionalString(zod, "Optional JavaScript wait condition", MAX_TEXT_CHARS),
 				timeoutMs: optionalInteger(zod, "Timeout in milliseconds", 100, MAX_WAIT_TIMEOUT_MS),
+			}).strict();
+		case "cmux_browser_find":
+			return zod.object({
+				surface: requiredString(zod, "cmux browser surface ref or UUID", 128),
+				kind: requiredString(zod, "Find kind", 16),
+				text: optionalString(zod, "Text/label/placeholder/alt/title/testid query", MAX_TEXT_CHARS),
+				role: optionalString(zod, "ARIA role for role queries", MAX_ATTR_CHARS),
+				name: optionalString(zod, "Optional accessible name for role queries", MAX_TEXT_CHARS),
+				selector: optionalString(zod, "CSS selector for first/last/nth queries", MAX_TARGET_CHARS),
+				index: optionalInteger(zod, "Zero-based nth index", 0, MAX_FIND_INDEX),
+				exact: optionalBoolean(zod, "Request exact matching where cmux supports it"),
+			}).strict();
+		case "cmux_browser_get":
+			return zod.object({
+				surface: requiredString(zod, "cmux browser surface ref or UUID", 128),
+				kind: requiredString(zod, "Get kind", 16),
+				selector: optionalString(zod, "Optional CSS selector", MAX_TARGET_CHARS),
+				attrName: optionalString(zod, "Attribute name for attr reads", MAX_ATTR_CHARS),
+				propertyName: optionalString(zod, "CSS property name for styles reads", MAX_ATTR_CHARS),
+			}).strict();
+		case "cmux_browser_is":
+			return zod.object({
+				surface: requiredString(zod, "cmux browser surface ref or UUID", 128),
+				kind: requiredString(zod, "visible, enabled, or checked", 16),
+				selector: requiredString(zod, "CSS selector to inspect", MAX_TARGET_CHARS),
 			}).strict();
 		case "cmux_browser_click":
 			return zod.object({
@@ -108,6 +148,29 @@ function schemaForTool(zod: ZodApi, name: string): ZodObjectLike {
 				surface: requiredString(zod, "cmux browser surface ref or UUID", 128),
 				target: requiredString(zod, "Element ref or CSS selector", MAX_TARGET_CHARS),
 				text: requiredString(zod, "Text to fill", MAX_TEXT_CHARS),
+			}).strict();
+		case "cmux_browser_press":
+			return zod.object({
+				surface: requiredString(zod, "cmux browser surface ref or UUID", 128),
+				key: requiredString(zod, "Keyboard key such as Enter, Tab, Escape, or ArrowDown", MAX_KEY_CHARS),
+			}).strict();
+		case "cmux_browser_select":
+			return zod.object({
+				surface: requiredString(zod, "cmux browser surface ref or UUID", 128),
+				selector: requiredString(zod, "CSS selector for the select control", MAX_TARGET_CHARS),
+				value: requiredString(zod, "Option value to select", MAX_TEXT_CHARS),
+			}).strict();
+		case "cmux_browser_scroll":
+			return zod.object({
+				surface: requiredString(zod, "cmux browser surface ref or UUID", 128),
+				selector: optionalString(zod, "Optional CSS selector to scroll", MAX_TARGET_CHARS),
+				dx: optionalInteger(zod, "Horizontal scroll delta", -MAX_SCROLL_DELTA, MAX_SCROLL_DELTA),
+				dy: optionalInteger(zod, "Vertical scroll delta", -MAX_SCROLL_DELTA, MAX_SCROLL_DELTA),
+			}).strict();
+		case "cmux_browser_screenshot":
+			return zod.object({
+				surface: requiredString(zod, "cmux browser surface ref or UUID", 128),
+				outPath: optionalString(zod, "Optional relative path under _artifacts-local/omp-cmux-browser-tools-eval", MAX_SCREENSHOT_PATH_CHARS),
 			}).strict();
 		default:
 			throw new Error(`Unknown cmux browser tool: ${name}`);

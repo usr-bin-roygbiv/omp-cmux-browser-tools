@@ -9,6 +9,8 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { mkdirSync } from "node:fs";
+import * as path from "node:path";
 
 export type ToolInput = Record<string, unknown>;
 export type JsonObject = Record<string, unknown>;
@@ -31,17 +33,27 @@ export type CmuxRunner = (command: string, args: string[], options: { env: Env; 
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 12_000;
 const MAX_COMMAND_TIMEOUT_MS = 65_000;
+const DEFAULT_OPEN_SETTLE_MS = 5_000;
 const DEFAULT_WAIT_TIMEOUT_MS = 5_000;
 const MAX_WAIT_TIMEOUT_MS = 60_000;
 const MAX_OUTPUT_CHARS = 16_000;
 const MAX_URL_CHARS = 2_048;
 const MAX_TARGET_CHARS = 1_024;
 const MAX_TEXT_CHARS = 4_000;
+const MAX_KEY_CHARS = 64;
+const MAX_ATTR_CHARS = 128;
+const MAX_SCREENSHOT_PATH_CHARS = 512;
+const MAX_SCROLL_DELTA = 5_000;
+const MAX_FIND_INDEX = 1_000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SURFACE_RE = /^surface:\d+$/;
 const WORKSPACE_RE = /^workspace:\d+$/;
 const WINDOW_RE = /^window:\d+$/;
 const LOAD_STATES = new Set(["interactive", "complete"]);
+const FIND_KINDS = new Set(["role", "text", "label", "placeholder", "alt", "title", "testid", "first", "last", "nth"]);
+const TEXT_FIND_KINDS = new Set(["text", "label", "placeholder", "alt", "title", "testid"]);
+const GET_KINDS = new Set(["url", "title", "text", "html", "value", "attr", "count", "box", "styles"]);
+const IS_KINDS = new Set(["visible", "enabled", "checked"]);
 const MAX_HELP_COMMAND_CHARS = 128;
 const HELP_COMMAND_TOKEN_RE = /^[a-z][a-z0-9_-]*$/;
 
@@ -159,6 +171,86 @@ function waitTimeoutMs(input: ToolInput): number {
 	const seconds = input.timeoutSeconds === undefined ? undefined : Number(input.timeoutSeconds) * 1000;
 	return clampInt(input.timeoutMs ?? seconds, DEFAULT_WAIT_TIMEOUT_MS, 100, MAX_WAIT_TIMEOUT_MS);
 }
+function enumInput(input: ToolInput, key: string, label: string, allowed: Set<string>, maxLength = 64): string {
+	const value = nonemptyString(input, key, label, maxLength);
+	if (!allowed.has(value)) throw new Error(`${label} must be one of: ${[...allowed].join(", ")}`);
+	return value;
+}
+
+function optionalBoundedString(input: ToolInput, key: string, label: string, maxLength: number): string | undefined {
+	const value = stringInput(input, key);
+	if (value === undefined) return undefined;
+	return nonemptyString(input, key, label, maxLength);
+}
+
+function attrNameInput(input: ToolInput, key: string, label: string): string {
+	const value = nonemptyString(input, key, label, MAX_ATTR_CHARS);
+	if (!/^[A-Za-z_:-][A-Za-z0-9_.:-]*$/.test(value)) throw new Error(`${label} must be a bounded attribute/property name`);
+	return value;
+}
+
+function keyInput(input: ToolInput): string {
+	const value = nonemptyString(input, "key", "key", MAX_KEY_CHARS);
+	if (/[\0\r\n]/.test(value)) throw new Error("key must not contain control characters");
+	return value;
+}
+
+function signedIntInput(input: ToolInput, key: string): number | undefined {
+	const value = input[key];
+	if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
+	if (typeof value === "string" && /^[+-]?\d+$/.test(value)) return Number(value);
+	return undefined;
+}
+
+function indexInput(input: ToolInput): number {
+	const index = signedIntInput(input, "index");
+	if (index === undefined) throw new Error("index is required");
+	if (index < 0 || index > MAX_FIND_INDEX) throw new Error(`index must be between 0 and ${MAX_FIND_INDEX}`);
+	return index;
+}
+
+function scrollDeltaInput(input: ToolInput, key: "dx" | "dy"): number | undefined {
+	const delta = signedIntInput(input, key);
+	if (delta === undefined) return undefined;
+	if (delta < -MAX_SCROLL_DELTA || delta > MAX_SCROLL_DELTA) throw new Error(`${key} must be between -${MAX_SCROLL_DELTA} and ${MAX_SCROLL_DELTA}`);
+	return delta;
+}
+
+function workspaceArtifactRoot(): string {
+	const cwd = process.cwd();
+	const base = path.basename(cwd) === "omp-cmux-browser-tools" ? path.dirname(cwd) : cwd;
+	return path.resolve(base, "_artifacts-local", "omp-cmux-browser-tools-eval");
+}
+
+function isInsidePath(root: string, candidate: string): boolean {
+	const relative = path.relative(root, candidate);
+	return relative === "" || (!!relative && !relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function screenshotOutPath(input: ToolInput): string {
+	const root = workspaceArtifactRoot();
+	const workspaceRoot = path.dirname(path.dirname(root));
+	const provided = stringInput(input, "outPath");
+	const raw = provided === undefined || provided.trim() === "" ? `screenshots/cmux-browser-${Date.now()}.png` : provided;
+	if (raw.length > MAX_SCREENSHOT_PATH_CHARS) throw new Error("outPath is too long");
+	if (/[\0\r\n]/.test(raw)) throw new Error("outPath must not contain control characters");
+	const normalized = raw.replace(/\\/g, "/");
+	const artifactPrefix = "_artifacts-local/omp-cmux-browser-tools-eval";
+	const candidate = path.isAbsolute(normalized)
+		? path.resolve(normalized)
+		: normalized === artifactPrefix || normalized.startsWith(`${artifactPrefix}/`)
+			? path.resolve(workspaceRoot, normalized)
+			: path.resolve(root, normalized);
+	if (!isInsidePath(root, candidate)) throw new Error("outPath must resolve inside _artifacts-local/omp-cmux-browser-tools-eval");
+	mkdirSync(path.dirname(candidate), { recursive: true });
+	return candidate;
+}
+
+function argAfter(args: string[], flag: string): string | undefined {
+	const index = args.indexOf(flag);
+	return index >= 0 ? args[index + 1] : undefined;
+}
+
 
 export function sanitizeToolText(text: string, maxChars = MAX_OUTPUT_CHARS): string {
 	const redacted = text
@@ -297,11 +389,26 @@ export function buildCmuxBrowserWaitArgs(input: ToolInput): { args: string[]; ti
 	if (url !== undefined) args.push("--url", nonemptyString(input, "url", "url", MAX_URL_CHARS));
 	const urlContains = stringInput(input, "urlContains");
 	if (urlContains !== undefined) args.push("--url-contains", nonemptyString(input, "urlContains", "urlContains", MAX_URL_CHARS));
-	const jsFunction = stringInput(input, "function");
-	if (jsFunction !== undefined) args.push("--function", nonemptyString(input, "function", "function", MAX_TEXT_CHARS));
+	if (stringInput(input, "function") !== undefined) throw new Error("JavaScript wait functions are not exposed");
 	if (args[4] === undefined) args.push("--load-state", "complete");
 	args.push("--timeout-ms", String(timeoutMs));
 	return { args, timeoutMs };
+}
+
+export function buildCmuxBrowserGotoArgs(input: ToolInput): string[] {
+	return ["browser", "--surface", surfaceInput(input), "goto", httpUrl(input), "--snapshot-after"];
+}
+
+export function buildCmuxBrowserBackArgs(input: ToolInput): string[] {
+	return ["browser", "--surface", surfaceInput(input), "back", "--snapshot-after"];
+}
+
+export function buildCmuxBrowserForwardArgs(input: ToolInput): string[] {
+	return ["browser", "--surface", surfaceInput(input), "forward", "--snapshot-after"];
+}
+
+export function buildCmuxBrowserReloadArgs(input: ToolInput): string[] {
+	return ["browser", "--surface", surfaceInput(input), "reload", "--snapshot-after"];
 }
 
 export function buildCmuxBrowserClickArgs(input: ToolInput): string[] {
@@ -312,14 +419,92 @@ export function buildCmuxBrowserFillArgs(input: ToolInput): string[] {
 	return ["browser", "--surface", surfaceInput(input), "fill", "--selector", nonemptyString(input, "target", "target", MAX_TARGET_CHARS), "--text", stringValue(input, "text", "text", MAX_TEXT_CHARS), "--snapshot-after"];
 }
 
-function executeBuiltArgs(build: () => string[] | { args: string[]; timeoutMs: number }, options: CmuxToolOptions): ToolResult {
+export function buildCmuxBrowserFindArgs(input: ToolInput): string[] {
+	const kind = enumInput(input, "kind", "find kind", FIND_KINDS);
+	const args = ["browser", "--surface", surfaceInput(input), "find", kind];
+	if (kind === "role") {
+		const name = optionalBoundedString(input, "name", "name", MAX_TEXT_CHARS);
+		if (name !== undefined) args.push("--name", name);
+		if (boolInput(input, "exact")) args.push("--exact");
+		args.push(nonemptyString(input, "role", "role", MAX_ATTR_CHARS));
+		return args;
+	}
+	if (TEXT_FIND_KINDS.has(kind)) {
+		if (boolInput(input, "exact")) args.push("--exact");
+		args.push(nonemptyString(input, "text", "text", MAX_TEXT_CHARS));
+		return args;
+	}
+	if (kind === "first" || kind === "last") {
+		args.push("--selector", nonemptyString(input, "selector", "selector", MAX_TARGET_CHARS));
+		return args;
+	}
+	args.push("--index", String(indexInput(input)), "--selector", nonemptyString(input, "selector", "selector", MAX_TARGET_CHARS));
+	return args;
+}
+
+export function buildCmuxBrowserGetArgs(input: ToolInput): string[] {
+	const kind = enumInput(input, "kind", "get kind", GET_KINDS);
+	const args = ["browser", "--surface", surfaceInput(input), "get", kind];
+	if ((kind === "url" || kind === "title") && stringInput(input, "selector") !== undefined) throw new Error(`${kind} get kind does not accept selector`);
+	const selector = optionalBoundedString(input, "selector", "selector", MAX_TARGET_CHARS);
+	if (selector !== undefined) args.push("--selector", selector);
+	if (kind === "attr") args.push("--attr", attrNameInput(input, "attrName", "attrName"));
+	const propertyName = optionalBoundedString(input, "propertyName", "propertyName", MAX_ATTR_CHARS);
+	if (propertyName !== undefined) args.push("--property", attrNameInput(input, "propertyName", "propertyName"));
+	return args;
+}
+
+export function buildCmuxBrowserIsArgs(input: ToolInput): string[] {
+	const kind = enumInput(input, "kind", "is kind", IS_KINDS);
+	return ["browser", "--surface", surfaceInput(input), "is", kind, "--selector", nonemptyString(input, "selector", "selector", MAX_TARGET_CHARS)];
+}
+
+export function buildCmuxBrowserPressArgs(input: ToolInput): string[] {
+	return ["browser", "--surface", surfaceInput(input), "press", "--key", keyInput(input), "--snapshot-after"];
+}
+
+export function buildCmuxBrowserSelectArgs(input: ToolInput): string[] {
+	return ["browser", "--surface", surfaceInput(input), "select", "--selector", nonemptyString(input, "selector", "selector", MAX_TARGET_CHARS), "--value", stringValue(input, "value", "value", MAX_TEXT_CHARS), "--snapshot-after"];
+}
+
+export function buildCmuxBrowserScrollArgs(input: ToolInput): string[] {
+	const dx = scrollDeltaInput(input, "dx");
+	const dy = scrollDeltaInput(input, "dy");
+	if (dx === undefined && dy === undefined) throw new Error("dx or dy is required");
+	if ((dx ?? 0) === 0 && (dy ?? 0) === 0) throw new Error("dx or dy must be non-zero");
+	const args = ["browser", "--surface", surfaceInput(input), "scroll"];
+	const selector = optionalBoundedString(input, "selector", "selector", MAX_TARGET_CHARS);
+	if (selector !== undefined) args.push("--selector", selector);
+	if (dx !== undefined) args.push("--dx", String(dx));
+	if (dy !== undefined) args.push("--dy", String(dy));
+	args.push("--snapshot-after");
+	return args;
+}
+
+export function buildCmuxBrowserScreenshotArgs(input: ToolInput): string[] {
+	return ["browser", "--surface", surfaceInput(input), "screenshot", "--out", screenshotOutPath(input)];
+}
+
+type BuiltCommand = string[] | { args: string[]; timeoutMs?: number };
+
+function executeBuiltArgs(build: () => BuiltCommand, options: CmuxToolOptions, extraDetails?: (args: string[]) => JsonObject): ToolResult {
 	try {
 		const built = build();
-		if (Array.isArray(built)) return runCmuxCommand(built, options);
-		return runCmuxCommand(built.args, { ...options, timeoutMs: Math.min(MAX_COMMAND_TIMEOUT_MS, built.timeoutMs + 5_000) });
+		const args = Array.isArray(built) ? built : built.args;
+		const timeoutMs = Array.isArray(built) || built.timeoutMs === undefined ? undefined : Math.min(MAX_COMMAND_TIMEOUT_MS, built.timeoutMs + 5_000);
+		const result = runCmuxCommand(args, timeoutMs === undefined ? options : { ...options, timeoutMs });
+		if (!extraDetails) return result;
+		return { ...result, details: { ...result.details, ...extraDetails(args) } };
 	} catch (error) {
 		return toolResult(false, { error: error instanceof Error ? error.message : String(error) });
 	}
+}
+
+function settleAfterBrowserOpen(options: CmuxToolOptions): void {
+	if (options.runner) return;
+	const delayMs = clampInt(process.env.CMUX_BROWSER_OPEN_SETTLE_MS, DEFAULT_OPEN_SETTLE_MS, 0, 10_000);
+	if (delayMs <= 0) return;
+	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
 }
 
 export function buildCmuxBrowserToolSpecs(options: CmuxToolOptions = {}): ToolSpec[] {
@@ -345,7 +530,11 @@ export function buildCmuxBrowserToolSpecs(options: CmuxToolOptions = {}): ToolSp
 			description: "Open a native cmux browser surface for an http(s) URL without shell interpolation.",
 			parameters: schema({ url: str("Absolute http(s) URL to open", MAX_URL_CHARS), workspace: str("Optional cmux workspace ref or UUID", 128), window: str("Optional cmux window ref or UUID", 128), focus: bool("Whether cmux should focus the new browser surface") }, ["url"]),
 			scopes: ["cmux", "browser", "visible-ui"],
-			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxBrowserOpenArgs(input), options),
+			execute: async (_toolCallId, input) => {
+				const result = executeBuiltArgs(() => buildCmuxBrowserOpenArgs(input), options);
+				if (result.ok) settleAfterBrowserOpen(options);
+				return result;
+			},
 		},
 		{
 			name: "cmux_browser_get_url",
@@ -353,7 +542,39 @@ export function buildCmuxBrowserToolSpecs(options: CmuxToolOptions = {}): ToolSp
 			description: "Return the current URL for an explicit cmux browser surface.",
 			parameters: schema({ surface: str("cmux browser surface ref or UUID", 128) }, ["surface"]),
 			scopes: ["cmux", "browser", "read-only"],
-			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxBrowserGetUrlArgs(input), options),
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxBrowserGetUrlArgs(input), options, args => ({ surface: argAfter(args, "--surface") })),
+		},
+		{
+			name: "cmux_browser_goto",
+			label: "cmux browser goto",
+			description: "Navigate an existing cmux browser surface to an http(s) URL and return a post-navigation snapshot.",
+			parameters: schema({ surface: str("cmux browser surface ref or UUID", 128), url: str("Absolute http(s) URL to navigate to", MAX_URL_CHARS) }, ["surface", "url"]),
+			scopes: ["cmux", "browser", "visible-ui"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxBrowserGotoArgs(input), options, args => ({ surface: argAfter(args, "--surface"), url: args[4] })),
+		},
+		{
+			name: "cmux_browser_back",
+			label: "cmux browser back",
+			description: "Navigate an explicit cmux browser surface backward and return a post-action snapshot.",
+			parameters: schema({ surface: str("cmux browser surface ref or UUID", 128) }, ["surface"]),
+			scopes: ["cmux", "browser", "visible-ui"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxBrowserBackArgs(input), options, args => ({ surface: argAfter(args, "--surface") })),
+		},
+		{
+			name: "cmux_browser_forward",
+			label: "cmux browser forward",
+			description: "Navigate an explicit cmux browser surface forward and return a post-action snapshot.",
+			parameters: schema({ surface: str("cmux browser surface ref or UUID", 128) }, ["surface"]),
+			scopes: ["cmux", "browser", "visible-ui"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxBrowserForwardArgs(input), options, args => ({ surface: argAfter(args, "--surface") })),
+		},
+		{
+			name: "cmux_browser_reload",
+			label: "cmux browser reload",
+			description: "Reload an explicit cmux browser surface and return a post-action snapshot.",
+			parameters: schema({ surface: str("cmux browser surface ref or UUID", 128) }, ["surface"]),
+			scopes: ["cmux", "browser", "visible-ui"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxBrowserReloadArgs(input), options, args => ({ surface: argAfter(args, "--surface") })),
 		},
 		{
 			name: "cmux_browser_snapshot",
@@ -361,15 +582,39 @@ export function buildCmuxBrowserToolSpecs(options: CmuxToolOptions = {}): ToolSp
 			description: "Capture an interactive accessibility snapshot for an explicit cmux browser surface.",
 			parameters: schema({ surface: str("cmux browser surface ref or UUID", 128), selector: str("Optional CSS selector/ref to scope the snapshot", MAX_TARGET_CHARS), compact: bool("Request compact snapshot output"), maxDepth: integer("Maximum snapshot depth", 1, 20) }, ["surface"]),
 			scopes: ["cmux", "browser", "read-only"],
-			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxBrowserSnapshotArgs(input), options),
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxBrowserSnapshotArgs(input), options, args => ({ surface: argAfter(args, "--surface"), selector: argAfter(args, "--selector") })),
 		},
 		{
 			name: "cmux_browser_wait",
 			label: "cmux browser wait",
-			description: "Wait for load state, selector, text, URL, or JavaScript condition on an explicit cmux browser surface.",
-			parameters: schema({ surface: str("cmux browser surface ref or UUID", 128), loadState: str("interactive or complete", 16), selector: str("Optional CSS selector/ref", MAX_TARGET_CHARS), text: str("Optional visible text", MAX_TEXT_CHARS), url: str("Optional exact URL", MAX_URL_CHARS), urlContains: str("Optional URL substring", MAX_URL_CHARS), function: str("Optional JavaScript wait condition", MAX_TEXT_CHARS), timeoutMs: integer("Timeout in milliseconds", 100, MAX_WAIT_TIMEOUT_MS) }, ["surface"]),
+			description: "Wait for load state, selector, text, or URL on an explicit cmux browser surface.",
+			parameters: schema({ surface: str("cmux browser surface ref or UUID", 128), loadState: str("interactive or complete", 16), selector: str("Optional CSS selector/ref", MAX_TARGET_CHARS), text: str("Optional visible text", MAX_TEXT_CHARS), url: str("Optional exact URL", MAX_URL_CHARS), urlContains: str("Optional URL substring", MAX_URL_CHARS), timeoutMs: integer("Timeout in milliseconds", 100, MAX_WAIT_TIMEOUT_MS) }, ["surface"]),
 			scopes: ["cmux", "browser", "visible-ui"],
-			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxBrowserWaitArgs(input), options),
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxBrowserWaitArgs(input), options, args => ({ surface: argAfter(args, "--surface") })),
+		},
+		{
+			name: "cmux_browser_find",
+			label: "cmux browser find",
+			description: "Find elements by bounded cmux locator kinds: role, text, label, placeholder, alt, title, testid, first, last, or nth.",
+			parameters: schema({ surface: str("cmux browser surface ref or UUID", 128), kind: str("Find kind", 16), text: str("Text/label/placeholder/alt/title/testid query", MAX_TEXT_CHARS), role: str("ARIA role for role queries", MAX_ATTR_CHARS), name: str("Optional accessible name for role queries", MAX_TEXT_CHARS), selector: str("CSS selector for first/last/nth queries", MAX_TARGET_CHARS), index: integer("Zero-based nth index", 0, MAX_FIND_INDEX), exact: bool("Request exact matching where cmux supports it") }, ["surface", "kind"]),
+			scopes: ["cmux", "browser", "read-only"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxBrowserFindArgs(input), options, args => ({ surface: argAfter(args, "--surface"), kind: args[4], selector: argAfter(args, "--selector"), target: args[args.length - 1] })),
+		},
+		{
+			name: "cmux_browser_get",
+			label: "cmux browser get",
+			description: "Read bounded browser state: url, title, text, html, value, attr, count, box, or styles.",
+			parameters: schema({ surface: str("cmux browser surface ref or UUID", 128), kind: str("Get kind", 16), selector: str("Optional CSS selector", MAX_TARGET_CHARS), attrName: str("Attribute name for attr reads", MAX_ATTR_CHARS), propertyName: str("CSS property name for styles reads", MAX_ATTR_CHARS) }, ["surface", "kind"]),
+			scopes: ["cmux", "browser", "read-only"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxBrowserGetArgs(input), options, args => ({ surface: argAfter(args, "--surface"), kind: args[4], selector: argAfter(args, "--selector"), attrName: argAfter(args, "--attr"), propertyName: argAfter(args, "--property") })),
+		},
+		{
+			name: "cmux_browser_is",
+			label: "cmux browser is",
+			description: "Check whether an element is visible, enabled, or checked without taking a full page snapshot.",
+			parameters: schema({ surface: str("cmux browser surface ref or UUID", 128), kind: str("visible, enabled, or checked", 16), selector: str("CSS selector to inspect", MAX_TARGET_CHARS) }, ["surface", "kind", "selector"]),
+			scopes: ["cmux", "browser", "read-only"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxBrowserIsArgs(input), options, args => ({ surface: argAfter(args, "--surface"), kind: args[4], selector: argAfter(args, "--selector") })),
 		},
 		{
 			name: "cmux_browser_click",
@@ -377,7 +622,7 @@ export function buildCmuxBrowserToolSpecs(options: CmuxToolOptions = {}): ToolSp
 			description: "Click an element ref/selector on an explicit cmux browser surface and return a post-action snapshot.",
 			parameters: schema({ surface: str("cmux browser surface ref or UUID", 128), target: str("Element ref or CSS selector", MAX_TARGET_CHARS) }, ["surface", "target"]),
 			scopes: ["cmux", "browser", "visible-ui"],
-			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxBrowserClickArgs(input), options),
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxBrowserClickArgs(input), options, args => ({ surface: argAfter(args, "--surface"), target: argAfter(args, "--selector") })),
 		},
 		{
 			name: "cmux_browser_fill",
@@ -385,7 +630,39 @@ export function buildCmuxBrowserToolSpecs(options: CmuxToolOptions = {}): ToolSp
 			description: "Fill an element ref/selector on an explicit cmux browser surface and return a post-action snapshot.",
 			parameters: schema({ surface: str("cmux browser surface ref or UUID", 128), target: str("Element ref or CSS selector", MAX_TARGET_CHARS), text: str("Text to fill", MAX_TEXT_CHARS) }, ["surface", "target", "text"]),
 			scopes: ["cmux", "browser", "visible-ui"],
-			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxBrowserFillArgs(input), options),
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxBrowserFillArgs(input), options, args => ({ surface: argAfter(args, "--surface"), target: argAfter(args, "--selector") })),
+		},
+		{
+			name: "cmux_browser_press",
+			label: "cmux browser press",
+			description: "Press a bounded keyboard key on an explicit cmux browser surface and return a post-action snapshot.",
+			parameters: schema({ surface: str("cmux browser surface ref or UUID", 128), key: str("Keyboard key such as Enter, Tab, Escape, or ArrowDown", MAX_KEY_CHARS) }, ["surface", "key"]),
+			scopes: ["cmux", "browser", "visible-ui"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxBrowserPressArgs(input), options, args => ({ surface: argAfter(args, "--surface"), key: argAfter(args, "--key") })),
+		},
+		{
+			name: "cmux_browser_select",
+			label: "cmux browser select",
+			description: "Select an option value in a bounded select control on an explicit cmux browser surface and return a post-action snapshot.",
+			parameters: schema({ surface: str("cmux browser surface ref or UUID", 128), selector: str("CSS selector for the select control", MAX_TARGET_CHARS), value: str("Option value to select", MAX_TEXT_CHARS) }, ["surface", "selector", "value"]),
+			scopes: ["cmux", "browser", "visible-ui"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxBrowserSelectArgs(input), options, args => ({ surface: argAfter(args, "--surface"), selector: argAfter(args, "--selector"), value: argAfter(args, "--value") })),
+		},
+		{
+			name: "cmux_browser_scroll",
+			label: "cmux browser scroll",
+			description: "Scroll an explicit cmux browser surface by small signed deltas and return a post-action snapshot.",
+			parameters: schema({ surface: str("cmux browser surface ref or UUID", 128), selector: str("Optional CSS selector to scroll", MAX_TARGET_CHARS), dx: integer("Horizontal scroll delta", -MAX_SCROLL_DELTA, MAX_SCROLL_DELTA), dy: integer("Vertical scroll delta", -MAX_SCROLL_DELTA, MAX_SCROLL_DELTA) }, ["surface"]),
+			scopes: ["cmux", "browser", "visible-ui"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxBrowserScrollArgs(input), options, args => ({ surface: argAfter(args, "--surface"), selector: argAfter(args, "--selector"), dx: argAfter(args, "--dx"), dy: argAfter(args, "--dy") })),
+		},
+		{
+			name: "cmux_browser_screenshot",
+			label: "cmux browser screenshot",
+			description: "Capture a browser screenshot to the owned local eval artifact directory only.",
+			parameters: schema({ surface: str("cmux browser surface ref or UUID", 128), outPath: str("Optional relative path under _artifacts-local/omp-cmux-browser-tools-eval", MAX_SCREENSHOT_PATH_CHARS) }, ["surface"]),
+			scopes: ["cmux", "browser", "read-only", "visual-proof"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxBrowserScreenshotArgs(input), options, args => ({ surface: argAfter(args, "--surface"), outPath: argAfter(args, "--out") })),
 		},
 	];
 }

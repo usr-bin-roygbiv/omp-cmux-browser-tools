@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BrowserGym cmux action-space fixture</title>
+  <style>
+    :root { color-scheme: light; }
+    body { font-family: system-ui, sans-serif; margin: 0; line-height: 1.5; }
+    main { padding: 2rem; }
+    label, input, button, select { display: block; margin-top: 0.75rem; }
+    input, select { min-width: 24rem; padding: 0.4rem; }
+    button { padding: 0.5rem 0.75rem; }
+    #result, #keyboard-result, #select-result { margin-top: 1rem; font-weight: 700; }
+    #nav-panel { padding: 0.75rem; border: 1px solid #5b6ee1; background: #eef1ff; }
+    #spacer { height: 1100px; border-top: 1px dashed #999; margin-top: 2rem; padding-top: 1rem; }
+    #scroll-target { margin-top: 2rem; padding: 1rem; background: #e7ffe7; border: 2px solid #187c18; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>BrowserGym cmux action-space fixture</h1>
+    <p id="fixture-intro" data-fixture="browsergym-action-space">This deterministic page proves visible cmux browser tool interaction.</p>
+    <section id="nav-panel" aria-label="navigation state">
+      <p id="view-state">Current fixture view: <strong id="view-name">home</strong></p>
+    </section>
+
+    <section aria-label="form controls">
+      <label for="marker-input">Marker</label>
+      <input id="marker-input" name="marker" type="text" value="" placeholder="enter marker text" autocomplete="off">
+      <button id="apply-marker" type="button">Apply marker</button>
+      <p id="result" aria-live="polite">No marker applied yet.</p>
+    </section>
+
+    <section aria-label="keyboard controls">
+      <form id="enter-form">
+        <label for="enter-input">Keyboard marker</label>
+        <input id="enter-input" name="keyboard" type="text" value="" placeholder="press enter marker" autocomplete="off">
+        <button id="submit-enter" type="submit">Submit keyboard marker</button>
+      </form>
+      <p id="keyboard-result" aria-live="polite">No keyboard marker submitted yet.</p>
+    </section>
+
+    <section aria-label="selection controls">
+      <label for="choice-select">Choice</label>
+      <select id="choice-select" name="choice">
+        <option value="alpha">Alpha</option>
+        <option value="beta">Beta</option>
+        <option value="gamma">Gamma</option>
+      </select>
+      <p id="select-result" aria-live="polite">Selected choice: alpha</p>
+    </section>
+
+    <section aria-label="state checks">
+      <label for="ready-checkbox">Ready checkbox</label>
+      <input id="ready-checkbox" type="checkbox" checked>
+      <button id="disabled-proof" type="button" disabled>Disabled proof button</button>
+    </section>
+
+    <div id="spacer">Scroll spacer before the offscreen proof block.</div>
+    <section id="scroll-target" aria-label="offscreen proof">
+      <h2>Offscreen proof block</h2>
+      <p id="offscreen-text">Scrolled target visible after cmux_browser_scroll.</p>
+    </section>
+  </main>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const view = params.get("view") || "home";
+    document.querySelector("#view-name").textContent = view;
+    document.body.dataset.view = view;
+
+    const markerInput = document.querySelector("#marker-input");
+    const result = document.querySelector("#result");
+    document.querySelector("#apply-marker").addEventListener("click", () => {
+      const marker = markerInput.value.trim();
+      result.textContent = marker ? `Applied marker: ${marker}` : "No marker applied yet.";
+    });
+
+    const keyboardInput = document.querySelector("#enter-input");
+    const keyboardResult = document.querySelector("#keyboard-result");
+    document.querySelector("#enter-form").addEventListener("submit", event => {
+      event.preventDefault();
+      const marker = keyboardInput.value.trim();
+      keyboardResult.textContent = marker ? `Keyboard marker: ${marker}` : "No keyboard marker submitted yet.";
+    });
+    document.addEventListener("keydown", event => {
+      if (event.key !== "Enter") return;
+      const marker = keyboardInput.value.trim();
+      keyboardResult.textContent = marker ? `Keyboard marker: ${marker}` : "No keyboard marker submitted yet.";
+    });
+
+    const select = document.querySelector("#choice-select");
+    const selectResult = document.querySelector("#select-result");
+    select.addEventListener("change", () => {
+      selectResult.textContent = `Selected choice: ${select.value}`;
+    });
+  </script>
+</body>
+</html>

@@ -1,10 +1,21 @@
 import { describe, expect, test } from "bun:test";
 
 import cmuxBrowserTools, {
+  buildCmuxBrowserBackArgs,
   buildCmuxBrowserClickArgs,
   buildCmuxBrowserFillArgs,
+  buildCmuxBrowserFindArgs,
+  buildCmuxBrowserForwardArgs,
+  buildCmuxBrowserGetArgs,
   buildCmuxBrowserGetUrlArgs,
+  buildCmuxBrowserGotoArgs,
+  buildCmuxBrowserIsArgs,
   buildCmuxBrowserOpenArgs,
+  buildCmuxBrowserPressArgs,
+  buildCmuxBrowserReloadArgs,
+  buildCmuxBrowserScreenshotArgs,
+  buildCmuxBrowserScrollArgs,
+  buildCmuxBrowserSelectArgs,
   buildCmuxBrowserSnapshotArgs,
   buildCmuxBrowserToolSpecs,
   buildCmuxBrowserWaitArgs,
@@ -77,10 +88,21 @@ function createFakeZod() {
 }
 
 const EXPECTED_TOOL_NAMES = [
+  "cmux_browser_back",
   "cmux_browser_click",
   "cmux_browser_fill",
+  "cmux_browser_find",
+  "cmux_browser_forward",
+  "cmux_browser_get",
   "cmux_browser_get_url",
+  "cmux_browser_goto",
+  "cmux_browser_is",
   "cmux_browser_open",
+  "cmux_browser_press",
+  "cmux_browser_reload",
+  "cmux_browser_screenshot",
+  "cmux_browser_scroll",
+  "cmux_browser_select",
   "cmux_browser_snapshot",
   "cmux_browser_wait",
   "cmux_help",
@@ -112,8 +134,23 @@ describe("cmux browser command builders", () => {
   test("rejects non-http navigation and invalid refs", () => {
     expect(() => buildCmuxBrowserOpenArgs({ url: "file:///tmp/test.html" })).toThrow("http: or https:");
     expect(() => buildCmuxBrowserOpenArgs({ url: "javascript:alert(1)" })).toThrow("http: or https:");
+    expect(() => buildCmuxBrowserGotoArgs({ surface: "surface:7", url: "file:///tmp/test.html" })).toThrow("http: or https:");
     expect(() => buildCmuxBrowserGetUrlArgs({ surface: "pane:1" })).toThrow("surface:<number> or a UUID");
     expect(() => buildCmuxBrowserOpenArgs({ url: "https://example.com", workspace: "../bad" })).toThrow("workspace:<number> or a UUID");
+  });
+
+  test("builds explicit-surface navigation commands", () => {
+    expect(buildCmuxBrowserGotoArgs({ surface: "surface:7", url: "https://example.com/next" })).toEqual([
+      "browser",
+      "--surface",
+      "surface:7",
+      "goto",
+      "https://example.com/next",
+      "--snapshot-after",
+    ]);
+    expect(buildCmuxBrowserBackArgs({ surface: "surface:7" })).toEqual(["browser", "--surface", "surface:7", "back", "--snapshot-after"]);
+    expect(buildCmuxBrowserForwardArgs({ surface: "surface:7" })).toEqual(["browser", "--surface", "surface:7", "forward", "--snapshot-after"]);
+    expect(buildCmuxBrowserReloadArgs({ surface: "surface:7" })).toEqual(["browser", "--surface", "surface:7", "reload", "--snapshot-after"]);
   });
 
   test("builds explicit-surface read and action commands", () => {
@@ -150,6 +187,112 @@ describe("cmux browser command builders", () => {
       "modified-by-omp-cmux-tool",
       "--snapshot-after",
     ]);
+    expect(buildCmuxBrowserPressArgs({ surface: "surface:7", key: "Enter" })).toEqual(["browser", "--surface", "surface:7", "press", "--key", "Enter", "--snapshot-after"]);
+    expect(buildCmuxBrowserSelectArgs({ surface: "surface:7", selector: "#choice", value: "beta" })).toEqual([
+      "browser",
+      "--surface",
+      "surface:7",
+      "select",
+      "--selector",
+      "#choice",
+      "--value",
+      "beta",
+      "--snapshot-after",
+    ]);
+    expect(buildCmuxBrowserScrollArgs({ surface: "surface:7", dx: -30, dy: 420 })).toEqual([
+      "browser",
+      "--surface",
+      "surface:7",
+      "scroll",
+      "--dx",
+      "-30",
+      "--dy",
+      "420",
+      "--snapshot-after",
+    ]);
+  });
+
+  test("builds read-only inspection commands", () => {
+    expect(buildCmuxBrowserFindArgs({ surface: "surface:7", kind: "text", text: "Apply marker", exact: true })).toEqual([
+      "browser",
+      "--surface",
+      "surface:7",
+      "find",
+      "text",
+      "--exact",
+      "Apply marker",
+    ]);
+    expect(buildCmuxBrowserFindArgs({ surface: "surface:7", kind: "role", role: "button", name: "Apply marker", exact: true })).toEqual([
+      "browser",
+      "--surface",
+      "surface:7",
+      "find",
+      "role",
+      "--name",
+      "Apply marker",
+      "--exact",
+      "button",
+    ]);
+    expect(buildCmuxBrowserFindArgs({ surface: "surface:7", kind: "nth", selector: "button", index: 1 })).toEqual([
+      "browser",
+      "--surface",
+      "surface:7",
+      "find",
+      "nth",
+      "--index",
+      "1",
+      "--selector",
+      "button",
+    ]);
+    expect(buildCmuxBrowserGetArgs({ surface: "surface:7", kind: "attr", selector: "#marker-input", attrName: "placeholder" })).toEqual([
+      "browser",
+      "--surface",
+      "surface:7",
+      "get",
+      "attr",
+      "--selector",
+      "#marker-input",
+      "--attr",
+      "placeholder",
+    ]);
+    expect(buildCmuxBrowserGetArgs({ surface: "surface:7", kind: "styles", selector: "#result", propertyName: "font-weight" })).toEqual([
+      "browser",
+      "--surface",
+      "surface:7",
+      "get",
+      "styles",
+      "--selector",
+      "#result",
+      "--property",
+      "font-weight",
+    ]);
+    expect(buildCmuxBrowserIsArgs({ surface: "surface:7", kind: "enabled", selector: "#apply-marker" })).toEqual([
+      "browser",
+      "--surface",
+      "surface:7",
+      "is",
+      "enabled",
+      "--selector",
+      "#apply-marker",
+    ]);
+  });
+
+  test("builds screenshot paths only inside the owned artifact directory", () => {
+    const args = buildCmuxBrowserScreenshotArgs({ surface: "surface:7", outPath: "unit/proof.png" });
+    expect(args.slice(0, 5)).toEqual(["browser", "--surface", "surface:7", "screenshot", "--out"]);
+    expect(args[5]).toContain("_artifacts-local/omp-cmux-browser-tools-eval/unit/proof.png");
+    expect(() => buildCmuxBrowserScreenshotArgs({ surface: "surface:7", outPath: "../proof.png" })).toThrow("inside _artifacts-local/omp-cmux-browser-tools-eval");
+    expect(() => buildCmuxBrowserScreenshotArgs({ surface: "surface:7", outPath: "/tmp/proof.png" })).toThrow("inside _artifacts-local/omp-cmux-browser-tools-eval");
+  });
+
+  test("rejects invalid inspection enums and unsafe action inputs", () => {
+    expect(() => buildCmuxBrowserFindArgs({ surface: "surface:7", kind: "eval", text: "x" })).toThrow("find kind");
+    expect(() => buildCmuxBrowserFindArgs({ surface: "surface:7", kind: "nth", selector: "button", index: -1 })).toThrow("index");
+    expect(() => buildCmuxBrowserGetArgs({ surface: "surface:7", kind: "cookies" })).toThrow("get kind");
+    expect(() => buildCmuxBrowserGetArgs({ surface: "surface:7", kind: "attr", selector: "#x" })).toThrow("attrName");
+    expect(() => buildCmuxBrowserIsArgs({ surface: "surface:7", kind: "selected", selector: "#x" })).toThrow("is kind");
+    expect(() => buildCmuxBrowserPressArgs({ surface: "surface:7", key: "Enter\n" })).toThrow("key");
+    expect(() => buildCmuxBrowserScrollArgs({ surface: "surface:7" })).toThrow("dx or dy");
   });
 
   test("builds bounded wait commands", () => {
@@ -157,10 +300,7 @@ describe("cmux browser command builders", () => {
       args: ["browser", "--surface", "surface:3", "wait", "--load-state", "interactive", "--selector", "#marker-input", "--timeout-ms", "60000"],
       timeoutMs: 60_000,
     });
-    expect(buildCmuxBrowserWaitArgs({ surface: "surface:3", function: "document.readyState === 'complete'" })).toEqual({
-      args: ["browser", "--surface", "surface:3", "wait", "--function", "document.readyState === 'complete'", "--timeout-ms", "5000"],
-      timeoutMs: 5_000,
-    });
+    expect(() => buildCmuxBrowserWaitArgs({ surface: "surface:3", function: "document.readyState === 'complete'" })).toThrow("JavaScript wait functions are not exposed");
     expect(buildCmuxBrowserWaitArgs({ surface: "surface:3" })).toEqual({
       args: ["browser", "--surface", "surface:3", "wait", "--load-state", "complete", "--timeout-ms", "5000"],
       timeoutMs: 5_000,
@@ -217,6 +357,29 @@ describe("cmux command execution", () => {
     expect(textResult.content).toEqual([{ type: "text", text: "plain text output" }]);
   });
 
+  test("normalizes screenshot and inspection result details", async () => {
+    const { runner: screenshotRunner } = recordingRunner('{"path":"ignored"}');
+    const screenshot = buildCmuxBrowserToolSpecs({ runner: screenshotRunner }).find((spec) => spec.name === "cmux_browser_screenshot")!;
+    const screenshotResult = await screenshot.execute("call-screenshot", { surface: "surface:7", outPath: "unit/result.png" });
+    expect(screenshotResult.ok).toBe(true);
+    expect(screenshotResult.details.surface).toBe("surface:7");
+    expect(screenshotResult.details.outPath).toContain("_artifacts-local/omp-cmux-browser-tools-eval/unit/result.png");
+
+    const { runner: getRunner } = recordingRunner('{"text":"Applied marker"}');
+    const get = buildCmuxBrowserToolSpecs({ runner: getRunner }).find((spec) => spec.name === "cmux_browser_get")!;
+    const getResult = await get.execute("call-get", { surface: "surface:7", kind: "text", selector: "#result" });
+    expect(getResult.ok).toBe(true);
+    expect(getResult.details.kind).toBe("text");
+    expect(getResult.details.selector).toBe("#result");
+
+    const { runner: isRunner } = recordingRunner('{"ok":true}');
+    const is = buildCmuxBrowserToolSpecs({ runner: isRunner }).find((spec) => spec.name === "cmux_browser_is")!;
+    const isResult = await is.execute("call-is", { surface: "surface:7", kind: "visible", selector: "#result" });
+    expect(isResult.ok).toBe(true);
+    expect(isResult.details.kind).toBe("visible");
+    expect(isResult.details.selector).toBe("#result");
+  });
+
   test("redacts sensitive-looking output", () => {
     const redacted = sanitizeToolText("token secret-value, bearer abc123, dev@example.com, sk-1234567890abcdef, cookie: sid=secret");
     expect(redacted).toContain("token [REDACTED]");
@@ -266,6 +429,14 @@ describe("custom-tool wrapper", () => {
     const help = tools.find((tool) => tool.name === "cmux_help")!;
     expect((help.parameters as any).strictValue).toBe(true);
     expect((help.parameters as any).shape.command.kind).toBe("string");
+
+    const find = tools.find((tool) => tool.name === "cmux_browser_find")!;
+    expect((find.parameters as any).strictValue).toBe(true);
+    expect((find.parameters as any).shape.kind.kind).toBe("string");
+    expect((find.parameters as any).shape.exact.kind).toBe("boolean");
+
+    const screenshot = tools.find((tool) => tool.name === "cmux_browser_screenshot")!;
+    expect((screenshot.parameters as any).shape.outPath.maxValue).toBe(512);
   });
 
   test("uses the shared cmux argv builders for custom-tool execution", async () => {
