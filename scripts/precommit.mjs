@@ -27,6 +27,7 @@ function cmuxAvailable() {
 
 async function main() {
   run("bun", ["test", "./tests/cmux-browser-tools.test.ts"], { timeoutMs: 120000 });
+  run("bun", ["run", "package:check"], { timeoutMs: 120000 });
 
   const check = cmuxAvailable();
   if (!check.ok) {

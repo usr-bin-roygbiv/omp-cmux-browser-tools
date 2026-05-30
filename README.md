@@ -108,13 +108,16 @@ Keep local absolute paths out of committed OMP/Pi configuration. If you use a lo
 - Returned stdout/stderr are redacted and truncated before being handed back to OMP/Pi.
 - This package does not expose arbitrary shell execution, standalone JavaScript eval, downloads/uploads, proxy changes, cookies/storage export, network interception, browser state save/load, profile import, tab lifecycle, or arbitrary cmux command execution. `cmux_browser_wait` accepts only load state, selector, text, exact URL, or URL-substring waits; it does not expose cmux's JavaScript `--function` wait path.
 
-## Local tests and evals
+## Local tests, packaging, and evals
 
 ```bash
 bun test tests/*.test.ts
+bun run package:check
 bun run test:interactive
 CMUX_EVAL_MODEL=gpt-proxy/gpt-5.5 bun run eval:cmux-browsergym
 ```
+
+`bun run package:check` verifies public package metadata, the `.claude-plugin/plugin.json` manifest, peer dependency bounds, and `npm pack --dry-run --json` contents. It fails if package output omits required extension/tool/eval files or includes runtime artifacts such as `_artifacts-local`, `node_modules`, logs, or `.DS_Store` files.
 
 `bun run test:interactive` drives every exposed tool against owned scratch cmux workspaces/surfaces and writes screenshot proof under `_artifacts-local/omp-cmux-browser-tools-eval/<run-id>/`. `bun run eval:cmux-browsergym` serves the same deterministic fixture over `127.0.0.1` and launches dev OMP in JSON mode with `--plugin-dir .`, `--auto-approve`, and a bounded tool list so provider/model tool calls are recorded as artifacts.
 
@@ -125,10 +128,10 @@ Provider-backed evals can consume model quota and are explicit. Precommit does n
 Install the tracked hook with:
 
 ```bash
-git config core.hooksPath .githooks
+bun run hooks:install
 ```
 
-The hook delegates to `bun run precommit`, which runs unit tests plus interactive cmux smoke by default. It fails with an actionable message if cmux is unavailable; emergency-only bypass is `CMUX_PRECOMMIT_SKIP_INTERACTIVE=1`.
+The hook delegates to `bun run precommit`, which runs unit tests, package dry-run validation, and interactive cmux smoke by default. It fails with an actionable message if cmux is unavailable; emergency-only bypass is `CMUX_PRECOMMIT_SKIP_INTERACTIVE=1`.
 
 ## Smoke fixture
 

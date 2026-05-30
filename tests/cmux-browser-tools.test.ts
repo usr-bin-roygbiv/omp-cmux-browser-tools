@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, test } from "bun:test";
 
 import cmuxBrowserTools, {
@@ -554,5 +556,27 @@ describe("custom-tool wrapper", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].command).toBe("cmux");
     expect(calls[0].args).toEqual(["--json", "browser", "open", unsafeUrl, "--focus", "false"]);
+  });
+});
+
+describe("package metadata", () => {
+  test("keeps package, plugin, and hook metadata in sync", () => {
+    const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+    const claudePlugin = JSON.parse(readFileSync(".claude-plugin/plugin.json", "utf8"));
+
+    expect(pkg.version).toBe("0.2.0");
+    expect(pkg.exports["."]).toBe("./extensions/index.ts");
+    expect(pkg.exports["./tools/cmux-browser-tools"]).toBe("./tools/cmux-browser-tools/index.ts");
+    expect(pkg.omp.extensions).toEqual(["./extensions/index.ts"]);
+    expect(pkg.pi.extensions).toEqual(["./extensions/index.ts"]);
+    expect(pkg.scripts.precommit).toBe("bun scripts/precommit.mjs");
+    expect(pkg.scripts["package:check"]).toBe("bun scripts/check-package.mjs");
+    expect(pkg.scripts["hooks:install"]).toBe("git config core.hooksPath .githooks");
+    expect(pkg.peerDependencies["@oh-my-pi/pi-coding-agent"]).toBe(">=15.5.15 <16");
+
+    expect(claudePlugin.name).toBe(pkg.name);
+    expect(claudePlugin.version).toBe(pkg.version);
+    expect(claudePlugin.description).toBe(pkg.description);
+    expect(claudePlugin.repository).toBe("https://github.com/usr-bin-roygbiv/omp-cmux-browser-tools");
   });
 });

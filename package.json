@@ -41,6 +41,8 @@
     "test": "bun test tests/*.test.ts",
     "test:interactive": "bun scripts/run-interactive-cmux-tools-smoke.mjs",
     "eval:cmux-browsergym": "bun scripts/run-cmux-browsergym-eval.mjs",
+    "package:check": "bun scripts/check-package.mjs",
+    "hooks:install": "git config core.hooksPath .githooks",
     "precommit": "bun scripts/precommit.mjs"
   },
   "peerDependencies": {
