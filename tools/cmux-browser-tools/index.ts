@@ -47,6 +47,14 @@ const MAX_TEXT_CHARS = 4_000;
 const MAX_KEY_CHARS = 64;
 const MAX_ATTR_CHARS = 128;
 const MAX_SCREENSHOT_PATH_CHARS = 512;
+const MAX_MARKDOWN_PATH_CHARS = 512;
+const MAX_CWD_CHARS = 512;
+const MAX_COMMAND_CHARS = 2_048;
+const MAX_LAYOUT_CHARS = 8_192;
+const MAX_NAME_CHARS = 128;
+const MAX_DESCRIPTION_CHARS = 512;
+const MAX_NOTIFICATION_ID_CHARS = 128;
+const MAX_LINES = 500;
 const MAX_WAIT_TIMEOUT_MS = 60_000;
 const MAX_FIND_INDEX = 1_000;
 const MAX_SCROLL_DELTA = 5_000;
@@ -73,6 +81,108 @@ function schemaForTool(zod: ZodApi, name: string): ZodObjectLike {
 		case "cmux_help":
 			return zod.object({
 				command: optionalString(zod, "Optional cmux command or subcommand path, such as browser or browser wait", MAX_HELP_COMMAND_CHARS),
+			}).strict();
+		case "cmux_identify":
+			return zod.object({
+				workspace: optionalString(zod, "Optional cmux workspace ref or UUID", 128),
+				surface: optionalString(zod, "Optional cmux surface ref or UUID", 128),
+				window: optionalString(zod, "Optional cmux window ref or UUID", 128),
+				noCaller: optionalBoolean(zod, "Omit caller metadata where cmux supports it"),
+			}).strict();
+		case "cmux_workspace_new":
+			return zod.object({
+				name: optionalString(zod, "Optional workspace title", MAX_NAME_CHARS),
+				description: optionalString(zod, "Optional workspace description", MAX_DESCRIPTION_CHARS),
+				cwd: optionalString(zod, "Optional working directory", MAX_CWD_CHARS),
+				command: optionalString(zod, "Optional command text sent to the new terminal", MAX_COMMAND_CHARS),
+				layout: optionalString(zod, "Optional cmux layout JSON", MAX_LAYOUT_CHARS),
+				window: optionalString(zod, "Optional target window ref or UUID", 128),
+				focus: optionalBoolean(zod, "Whether cmux should focus the new workspace"),
+			}).strict();
+		case "cmux_workspace_tree":
+			return zod.object({
+				all: optionalBoolean(zod, "Include all windows"),
+				workspace: optionalString(zod, "Optional workspace ref or UUID", 128),
+				window: optionalString(zod, "Optional window ref or UUID", 128),
+			}).strict();
+		case "cmux_workspace_close":
+			return zod.object({
+				workspace: requiredString(zod, "Workspace ref or UUID to close", 128),
+				window: optionalString(zod, "Optional window ref or UUID", 128),
+			}).strict();
+		case "cmux_surface_new":
+			return zod.object({
+				type: optionalString(zod, "terminal or browser", 16),
+				pane: optionalString(zod, "Optional pane ref or UUID", 128),
+				workspace: optionalString(zod, "Optional workspace ref or UUID", 128),
+				window: optionalString(zod, "Optional window ref or UUID", 128),
+				url: optionalString(zod, "Optional http(s) URL for browser surfaces", MAX_URL_CHARS),
+				focus: optionalBoolean(zod, "Whether cmux should focus the new surface"),
+			}).strict();
+		case "cmux_surface_close":
+			return zod.object({
+				surface: requiredString(zod, "Surface ref or UUID to close", 128),
+				workspace: optionalString(zod, "Optional workspace ref or UUID", 128),
+				window: optionalString(zod, "Optional window ref or UUID", 128),
+			}).strict();
+		case "cmux_surface_read":
+			return zod.object({
+				surface: requiredString(zod, "Terminal surface ref or UUID", 128),
+				workspace: optionalString(zod, "Optional workspace ref or UUID", 128),
+				window: optionalString(zod, "Optional window ref or UUID", 128),
+				scrollback: optionalBoolean(zod, "Include scrollback"),
+				lines: optionalInteger(zod, "Maximum lines to return", 1, MAX_LINES),
+			}).strict();
+		case "cmux_terminal_open":
+			return zod.object({
+				name: optionalString(zod, "Optional workspace title", MAX_NAME_CHARS),
+				cwd: optionalString(zod, "Optional working directory", MAX_CWD_CHARS),
+				command: optionalString(zod, "Optional command text sent to the terminal", MAX_COMMAND_CHARS),
+				window: optionalString(zod, "Optional target window ref or UUID", 128),
+				focus: optionalBoolean(zod, "Whether cmux should focus the terminal"),
+			}).strict();
+		case "cmux_terminal_send":
+			return zod.object({
+				surface: requiredString(zod, "Terminal surface ref or UUID", 128),
+				text: requiredString(zod, "Text to send", MAX_TEXT_CHARS),
+				workspace: optionalString(zod, "Optional workspace ref or UUID", 128),
+				window: optionalString(zod, "Optional window ref or UUID", 128),
+				enter: optionalBoolean(zod, "Append Enter when text does not already end with newline"),
+			}).strict();
+		case "cmux_sidebar_state":
+			return zod.object({
+				workspace: optionalString(zod, "Optional workspace ref or UUID", 128),
+				window: optionalString(zod, "Optional window ref or UUID", 128),
+			}).strict();
+		case "cmux_notifications_list":
+			return zod.object({}).strict();
+		case "cmux_notification_dismiss":
+			return zod.object({
+				id: optionalString(zod, "Notification UUID", MAX_NOTIFICATION_ID_CHARS),
+				allRead: optionalBoolean(zod, "Dismiss all read notifications instead of one id"),
+			}).strict();
+		case "cmux_surface_resume_show":
+		case "cmux_surface_resume_clear":
+			return zod.object({
+				workspace: optionalString(zod, "Optional workspace ref or UUID", 128),
+				surface: optionalString(zod, "Optional surface ref or UUID", 128),
+				window: optionalString(zod, "Optional window ref or UUID", 128),
+			}).strict();
+		case "cmux_config_check":
+			return zod.object({
+				path: optionalString(zod, "Optional config path", MAX_MARKDOWN_PATH_CHARS),
+			}).strict();
+		case "cmux_reload_config":
+			return zod.object({}).strict();
+		case "cmux_markdown_open":
+		case "cmux_markdown_preview":
+			return zod.object({
+				path: requiredString(zod, "Markdown file path", MAX_MARKDOWN_PATH_CHARS),
+				workspace: optionalString(zod, "Optional workspace ref or UUID", 128),
+				surface: optionalString(zod, "Optional source surface ref or UUID", 128),
+				window: optionalString(zod, "Optional window ref or UUID", 128),
+				direction: optionalString(zod, "left, right, up, or down", 16),
+				focus: optionalBoolean(zod, "Whether cmux should focus the markdown panel"),
 			}).strict();
 		case "cmux_browser_open":
 			return zod.object({
@@ -173,7 +283,7 @@ function schemaForTool(zod: ZodApi, name: string): ZodObjectLike {
 				outPath: optionalString(zod, "Optional relative path under _artifacts-local/omp-cmux-browser-tools-eval", MAX_SCREENSHOT_PATH_CHARS),
 			}).strict();
 		default:
-			throw new Error(`Unknown cmux browser tool: ${name}`);
+			throw new Error(`Unknown cmux tool: ${name}`);
 	}
 }
 

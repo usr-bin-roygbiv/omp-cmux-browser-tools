@@ -43,12 +43,21 @@ const MAX_TEXT_CHARS = 4_000;
 const MAX_KEY_CHARS = 64;
 const MAX_ATTR_CHARS = 128;
 const MAX_SCREENSHOT_PATH_CHARS = 512;
+const MAX_MARKDOWN_PATH_CHARS = 512;
+const MAX_CWD_CHARS = 512;
+const MAX_COMMAND_CHARS = 2_048;
+const MAX_LAYOUT_CHARS = 8_192;
+const MAX_NAME_CHARS = 128;
+const MAX_DESCRIPTION_CHARS = 512;
+const MAX_NOTIFICATION_ID_CHARS = 128;
+const MAX_LINES = 500;
 const MAX_SCROLL_DELTA = 5_000;
 const MAX_FIND_INDEX = 1_000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SURFACE_RE = /^surface:\d+$/;
 const WORKSPACE_RE = /^workspace:\d+$/;
 const WINDOW_RE = /^window:\d+$/;
+const PANE_RE = /^pane:\d+$/;
 const LOAD_STATES = new Set(["interactive", "complete"]);
 const FIND_KINDS = new Set(["role", "text", "label", "placeholder", "alt", "title", "testid", "first", "last", "nth"]);
 const TEXT_FIND_KINDS = new Set(["text", "label", "placeholder", "alt", "title", "testid"]);
@@ -74,8 +83,8 @@ Notifications and sidebar:
 Browser automation:
   browser open/goto/back/forward/reload/url
   browser snapshot/screenshot
-  browser click/dblclick/hover/focus/fill/type/press/select/scroll
-  browser wait/find/get/is/eval/console/errors/network/tab/dialog/state
+  browser click/fill/press/select/scroll
+  browser wait/find/get/is
 
 Markdown:
   markdown open
@@ -83,7 +92,7 @@ Markdown:
 Session info:
   identify, info, capabilities
 
-Call cmux_help with command "browser" or "browser wait" for detailed syntax. cmux_help is reference-only; this plugin executes only the registered cmux_help and cmux_browser_* tools, not arbitrary cmux commands. Most browser subcommands accept --surface <id>, and action commands accept --snapshot-after.`;
+Call cmux_help with command "browser" or "browser wait" for detailed syntax. cmux_help is reference-only; this plugin executes only the registered cmux_* tools, not arbitrary cmux commands. Most browser subcommands accept --surface <id>, and action commands accept --snapshot-after.`;
 
 type CmuxToolOptions = { env?: Env; runner?: CmuxRunner };
 
@@ -139,16 +148,18 @@ function clampInt(value: unknown, fallback: number, minimum: number, maximum: nu
 	return Math.max(minimum, Math.min(maximum, Math.trunc(parsed)));
 }
 
-function validateRef(value: string, kind: "surface" | "workspace" | "window"): string {
-	const prefixed = kind === "surface" ? SURFACE_RE : kind === "workspace" ? WORKSPACE_RE : WINDOW_RE;
+type CmuxRefKind = "surface" | "workspace" | "window" | "pane";
+
+function validateRef(value: string, kind: CmuxRefKind): string {
+	const prefixed = kind === "surface" ? SURFACE_RE : kind === "workspace" ? WORKSPACE_RE : kind === "window" ? WINDOW_RE : PANE_RE;
 	if (prefixed.test(value) || UUID_RE.test(value)) return value;
-	throw new Error(`${kind} must be ${kind}:<number> or a UUID`);
+	throw new Error(kind + " must be " + kind + ":<number> or a UUID");
 }
 
-function optionalRef(input: ToolInput, key: "workspace" | "window", args: string[]): void {
+function optionalRef(input: ToolInput, key: CmuxRefKind, args: string[]): void {
 	const value = stringInput(input, key);
 	if (!value) return;
-	args.push(`--${key}`, validateRef(value, key));
+	args.push("--" + key, validateRef(value, key));
 }
 
 function httpUrl(input: ToolInput): string {
@@ -165,6 +176,36 @@ function httpUrl(input: ToolInput): string {
 
 function surfaceInput(input: ToolInput): string {
 	return validateRef(nonemptyString(input, "surface", "surface", 128), "surface");
+}
+
+function workspaceInput(input: ToolInput): string {
+	return validateRef(nonemptyString(input, "workspace", "workspace", 128), "workspace");
+}
+
+function notificationIdInput(input: ToolInput): string {
+	const value = nonemptyString(input, "id", "id", MAX_NOTIFICATION_ID_CHARS);
+	if (!UUID_RE.test(value)) throw new Error("id must be a notification UUID");
+	return value;
+}
+
+function safePathInput(input: ToolInput, key: string, label: string, maxLength: number): string {
+	const value = nonemptyString(input, key, label, maxLength);
+	if (/[\0\r\n]/.test(value)) throw new Error(label + " must not contain control characters");
+	return value;
+}
+
+function optionalSafePath(input: ToolInput, key: string, label: string, maxLength: number): string | undefined {
+	const value = optionalBoundedString(input, key, label, maxLength);
+	if (!value) return undefined;
+	if (/[\0\r\n]/.test(value)) throw new Error(label + " must not contain control characters");
+	return value;
+}
+
+function optionalSafeText(input: ToolInput, key: string, label: string, maxLength: number): string | undefined {
+	const value = optionalBoundedString(input, key, label, maxLength);
+	if (value === undefined) return undefined;
+	if (/[\0]/.test(value)) throw new Error(label + " must not contain NUL bytes");
+	return value;
 }
 
 function waitTimeoutMs(input: ToolInput): number {
@@ -485,6 +526,160 @@ export function buildCmuxBrowserScreenshotArgs(input: ToolInput): string[] {
 	return ["browser", "--surface", surfaceInput(input), "screenshot", "--out", screenshotOutPath(input)];
 }
 
+
+export function buildCmuxIdentifyArgs(input: ToolInput): string[] {
+	const args = ["identify"];
+	optionalRef(input, "workspace", args);
+	optionalRef(input, "surface", args);
+	optionalRef(input, "window", args);
+	if (boolInput(input, "noCaller") === true) args.push("--no-caller");
+	return args;
+}
+
+export function buildCmuxWorkspaceNewArgs(input: ToolInput): string[] {
+	const args = ["new-workspace"];
+	const name = optionalSafeText(input, "name", "name", MAX_NAME_CHARS);
+	const description = optionalSafeText(input, "description", "description", MAX_DESCRIPTION_CHARS);
+	const cwd = optionalSafePath(input, "cwd", "cwd", MAX_CWD_CHARS);
+	const command = optionalSafeText(input, "command", "command", MAX_COMMAND_CHARS);
+	const layout = optionalSafeText(input, "layout", "layout", MAX_LAYOUT_CHARS);
+	if (layout !== undefined) {
+		try { JSON.parse(layout); } catch { throw new Error("layout must be valid JSON"); }
+	}
+	if (name !== undefined) args.push("--name", name);
+	if (description !== undefined) args.push("--description", description);
+	if (cwd !== undefined) args.push("--cwd", cwd);
+	if (command !== undefined) args.push("--command", command);
+	if (layout !== undefined) args.push("--layout", layout);
+	optionalRef(input, "window", args);
+	args.push("--focus", boolInput(input, "focus") === true ? "true" : "false");
+	return args;
+}
+
+export function buildCmuxWorkspaceTreeArgs(input: ToolInput): string[] {
+	const args = ["tree", "--json"];
+	if (boolInput(input, "all") === true) args.push("--all");
+	optionalRef(input, "workspace", args);
+	optionalRef(input, "window", args);
+	return args;
+}
+
+export function buildCmuxWorkspaceCloseArgs(input: ToolInput): string[] {
+	const args = ["close-workspace", "--workspace", workspaceInput(input)];
+	optionalRef(input, "window", args);
+	return args;
+}
+
+export function buildCmuxSurfaceNewArgs(input: ToolInput): string[] {
+	const rawType = optionalBoundedString(input, "type", "type", 16) ?? "terminal";
+	if (rawType !== "terminal" && rawType !== "browser") throw new Error("type must be terminal or browser");
+	const args = ["new-surface", "--type", rawType];
+	optionalRef(input, "pane", args);
+	optionalRef(input, "workspace", args);
+	optionalRef(input, "window", args);
+	if (rawType === "browser") {
+		const url = stringInput(input, "url");
+		if (url !== undefined && url.trim() !== "") args.push("--url", httpUrl(input));
+	}
+	args.push("--focus", boolInput(input, "focus") === true ? "true" : "false");
+	return args;
+}
+
+export function buildCmuxSurfaceCloseArgs(input: ToolInput): string[] {
+	const args = ["close-surface", "--surface", surfaceInput(input)];
+	optionalRef(input, "workspace", args);
+	optionalRef(input, "window", args);
+	return args;
+}
+
+export function buildCmuxSurfaceReadArgs(input: ToolInput): string[] {
+	const args = ["read-screen", "--surface", surfaceInput(input), "--lines", String(clampInt(input.lines, 120, 1, MAX_LINES))];
+	optionalRef(input, "workspace", args);
+	optionalRef(input, "window", args);
+	if (boolInput(input, "scrollback") === true) args.push("--scrollback");
+	return args;
+}
+
+export function buildCmuxTerminalOpenArgs(input: ToolInput): string[] {
+	const args = ["new-workspace"];
+	const name = optionalSafeText(input, "name", "name", MAX_NAME_CHARS) ?? "OMP terminal";
+	args.push("--name", name);
+	const cwd = optionalSafePath(input, "cwd", "cwd", MAX_CWD_CHARS);
+	const command = optionalSafeText(input, "command", "command", MAX_COMMAND_CHARS);
+	if (cwd !== undefined) args.push("--cwd", cwd);
+	if (command !== undefined) args.push("--command", command);
+	optionalRef(input, "window", args);
+	args.push("--focus", boolInput(input, "focus") === true ? "true" : "false");
+	return args;
+}
+
+export function buildCmuxTerminalSendArgs(input: ToolInput): string[] {
+	let text = stringValue(input, "text", "text", MAX_TEXT_CHARS);
+	if (boolInput(input, "enter") === true && !text.endsWith("\n")) text += "\n";
+	const args = ["send", "--surface", surfaceInput(input)];
+	optionalRef(input, "workspace", args);
+	optionalRef(input, "window", args);
+	args.push("--", text);
+	return args;
+}
+
+export function buildCmuxSidebarStateArgs(input: ToolInput): string[] {
+	const args = ["sidebar-state"];
+	optionalRef(input, "workspace", args);
+	optionalRef(input, "window", args);
+	return args;
+}
+
+export function buildCmuxNotificationsListArgs(_input: ToolInput): string[] {
+	return ["list-notifications"];
+}
+
+export function buildCmuxNotificationDismissArgs(input: ToolInput): string[] {
+	if (boolInput(input, "allRead") === true) return ["dismiss-notification", "--all-read"];
+	return ["dismiss-notification", "--id", notificationIdInput(input)];
+}
+
+export function buildCmuxSurfaceResumeShowArgs(input: ToolInput): string[] {
+	const args = ["surface", "resume", "show", "--json"];
+	optionalRef(input, "workspace", args);
+	optionalRef(input, "surface", args);
+	optionalRef(input, "window", args);
+	return args;
+}
+
+export function buildCmuxSurfaceResumeClearArgs(input: ToolInput): string[] {
+	const args = ["surface", "resume", "clear"];
+	optionalRef(input, "workspace", args);
+	optionalRef(input, "surface", args);
+	optionalRef(input, "window", args);
+	return args;
+}
+
+export function buildCmuxConfigCheckArgs(input: ToolInput): string[] {
+	const args = ["config", "check"];
+	const configPath = optionalSafePath(input, "path", "path", MAX_MARKDOWN_PATH_CHARS);
+	if (configPath !== undefined) args.push("--path", configPath);
+	return args;
+}
+
+export function buildCmuxReloadConfigArgs(_input: ToolInput): string[] {
+	return ["reload-config"];
+}
+
+export function buildCmuxMarkdownOpenArgs(input: ToolInput): string[] {
+	const args = ["markdown", "open", safePathInput(input, "path", "path", MAX_MARKDOWN_PATH_CHARS)];
+	optionalRef(input, "workspace", args);
+	optionalRef(input, "surface", args);
+	optionalRef(input, "window", args);
+	const direction = optionalBoundedString(input, "direction", "direction", 16);
+	if (direction !== undefined) {
+		if (!["left", "right", "up", "down"].includes(direction)) throw new Error("direction must be left, right, up, or down");
+		args.push("--direction", direction);
+	}
+	args.push("--focus", boolInput(input, "focus") === true ? "true" : "false");
+	return args;
+}
+
 type BuiltCommand = string[] | { args: string[]; timeoutMs?: number };
 
 function executeBuiltArgs(build: () => BuiltCommand, options: CmuxToolOptions, extraDetails?: (args: string[]) => JsonObject): ToolResult {
@@ -523,6 +718,150 @@ export function buildCmuxBrowserToolSpecs(options: CmuxToolOptions = {}): ToolSp
 					return toolResult(false, { error: error instanceof Error ? error.message : String(error) });
 				}
 			},
+		},
+		{
+			name: "cmux_identify",
+			label: "cmux identify",
+			description: "Identify the caller and focused cmux workspace, window, pane, and surface refs.",
+			parameters: schema({ workspace: str("Optional cmux workspace ref or UUID", 128), surface: str("Optional cmux surface ref or UUID", 128), window: str("Optional cmux window ref or UUID", 128), noCaller: bool("Omit caller metadata where cmux supports it") }),
+			scopes: ["cmux", "read-only"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxIdentifyArgs(input), options),
+		},
+		{
+			name: "cmux_workspace_new",
+			label: "cmux workspace new",
+			description: "Create a named cmux workspace with optional cwd, layout, or terminal command; focus is false unless explicitly requested.",
+			parameters: schema({ name: str("Optional workspace title", MAX_NAME_CHARS), description: str("Optional workspace description", MAX_DESCRIPTION_CHARS), cwd: str("Optional working directory", MAX_CWD_CHARS), command: str("Optional command text sent to the new terminal", MAX_COMMAND_CHARS), layout: str("Optional cmux layout JSON", MAX_LAYOUT_CHARS), window: str("Optional target window ref or UUID", 128), focus: bool("Whether cmux should focus the new workspace") }),
+			scopes: ["cmux", "workspace", "visible-ui"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxWorkspaceNewArgs(input), options),
+		},
+		{
+			name: "cmux_workspace_tree",
+			label: "cmux workspace tree",
+			description: "Read cmux window/workspace/pane/surface hierarchy as structured JSON where supported.",
+			parameters: schema({ all: bool("Include all windows"), workspace: str("Optional workspace ref or UUID", 128), window: str("Optional window ref or UUID", 128) }),
+			scopes: ["cmux", "workspace", "read-only"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxWorkspaceTreeArgs(input), options),
+		},
+		{
+			name: "cmux_workspace_close",
+			label: "cmux workspace close",
+			description: "Close an explicit cmux workspace. Use only for scratch workspaces you own.",
+			parameters: schema({ workspace: str("Workspace ref or UUID to close", 128), window: str("Optional window ref or UUID", 128) }, ["workspace"]),
+			scopes: ["cmux", "workspace", "write"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxWorkspaceCloseArgs(input), options),
+		},
+		{
+			name: "cmux_surface_new",
+			label: "cmux surface new",
+			description: "Create a terminal or browser surface in an explicit cmux pane/workspace; focus is false unless explicitly requested.",
+			parameters: schema({ type: str("terminal or browser", 16), pane: str("Optional pane ref or UUID", 128), workspace: str("Optional workspace ref or UUID", 128), window: str("Optional window ref or UUID", 128), url: str("Optional http(s) URL for browser surfaces", MAX_URL_CHARS), focus: bool("Whether cmux should focus the new surface") }),
+			scopes: ["cmux", "surface", "visible-ui"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxSurfaceNewArgs(input), options),
+		},
+		{
+			name: "cmux_surface_close",
+			label: "cmux surface close",
+			description: "Close an explicit cmux surface. Use only for scratch surfaces you own.",
+			parameters: schema({ surface: str("Surface ref or UUID to close", 128), workspace: str("Optional workspace ref or UUID", 128), window: str("Optional window ref or UUID", 128) }, ["surface"]),
+			scopes: ["cmux", "surface", "write"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxSurfaceCloseArgs(input), options),
+		},
+		{
+			name: "cmux_surface_read",
+			label: "cmux surface read",
+			description: "Read bounded text from an explicit terminal surface, optionally including scrollback.",
+			parameters: schema({ surface: str("Terminal surface ref or UUID", 128), workspace: str("Optional workspace ref or UUID", 128), window: str("Optional window ref or UUID", 128), scrollback: bool("Include scrollback"), lines: integer("Maximum lines to return", 1, MAX_LINES) }, ["surface"]),
+			scopes: ["cmux", "surface", "read-only"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxSurfaceReadArgs(input), options),
+		},
+		{
+			name: "cmux_terminal_open",
+			label: "cmux terminal open",
+			description: "Open an owned cmux terminal workspace, optionally sending a bounded command string; focus is false unless explicitly requested.",
+			parameters: schema({ name: str("Optional workspace title", MAX_NAME_CHARS), cwd: str("Optional working directory", MAX_CWD_CHARS), command: str("Optional command text sent to the terminal", MAX_COMMAND_CHARS), window: str("Optional target window ref or UUID", 128), focus: bool("Whether cmux should focus the terminal") }),
+			scopes: ["cmux", "terminal", "visible-ui"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxTerminalOpenArgs(input), options),
+		},
+		{
+			name: "cmux_terminal_send",
+			label: "cmux terminal send",
+			description: "Send bounded text to an explicit terminal surface. Use only for surfaces you own.",
+			parameters: schema({ surface: str("Terminal surface ref or UUID", 128), text: str("Text to send", MAX_TEXT_CHARS), workspace: str("Optional workspace ref or UUID", 128), window: str("Optional window ref or UUID", 128), enter: bool("Append Enter when text does not already end with newline") }, ["surface", "text"]),
+			scopes: ["cmux", "terminal", "write"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxTerminalSendArgs(input), options),
+		},
+		{
+			name: "cmux_sidebar_state",
+			label: "cmux sidebar state",
+			description: "Read cmux sidebar metadata for a workspace, including cwd, status, progress, and logs.",
+			parameters: schema({ workspace: str("Optional workspace ref or UUID", 128), window: str("Optional window ref or UUID", 128) }),
+			scopes: ["cmux", "read-only"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxSidebarStateArgs(input), options),
+		},
+		{
+			name: "cmux_notifications_list",
+			label: "cmux notifications list",
+			description: "List queued cmux notifications with redacted text.",
+			parameters: schema({}),
+			scopes: ["cmux", "notifications", "read-only"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxNotificationsListArgs(input), options),
+		},
+		{
+			name: "cmux_notification_dismiss",
+			label: "cmux notification dismiss",
+			description: "Dismiss one notification by UUID, or all already-read notifications.",
+			parameters: schema({ id: str("Notification UUID", MAX_NOTIFICATION_ID_CHARS), allRead: bool("Dismiss all read notifications instead of one id") }),
+			scopes: ["cmux", "notifications", "write"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxNotificationDismissArgs(input), options),
+		},
+		{
+			name: "cmux_surface_resume_show",
+			label: "cmux surface resume show",
+			description: "Show public cmux resume metadata for an explicit or caller surface.",
+			parameters: schema({ workspace: str("Optional workspace ref or UUID", 128), surface: str("Optional surface ref or UUID", 128), window: str("Optional window ref or UUID", 128) }),
+			scopes: ["cmux", "resume", "read-only"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxSurfaceResumeShowArgs(input), options),
+		},
+		{
+			name: "cmux_surface_resume_clear",
+			label: "cmux surface resume clear",
+			description: "Clear cmux resume metadata for an explicit or caller surface.",
+			parameters: schema({ workspace: str("Optional workspace ref or UUID", 128), surface: str("Optional surface ref or UUID", 128), window: str("Optional window ref or UUID", 128) }),
+			scopes: ["cmux", "resume", "write"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxSurfaceResumeClearArgs(input), options),
+		},
+		{
+			name: "cmux_config_check",
+			label: "cmux config check",
+			description: "Validate cmux configuration JSONC syntax without editing it.",
+			parameters: schema({ path: str("Optional config path", MAX_MARKDOWN_PATH_CHARS) }),
+			scopes: ["cmux", "settings", "read-only"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxConfigCheckArgs(input), options),
+		},
+		{
+			name: "cmux_reload_config",
+			label: "cmux reload config",
+			description: "Reload Ghostty and cmux configuration in the running app.",
+			parameters: schema({}),
+			scopes: ["cmux", "settings", "write"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxReloadConfigArgs(input), options),
+		},
+		{
+			name: "cmux_markdown_open",
+			label: "cmux markdown open",
+			description: "Open a Markdown file in a formatted cmux viewer panel with live reload; focus is false unless explicitly requested.",
+			parameters: schema({ path: str("Markdown file path", MAX_MARKDOWN_PATH_CHARS), workspace: str("Optional workspace ref or UUID", 128), surface: str("Optional source surface ref or UUID", 128), window: str("Optional window ref or UUID", 128), direction: str("left, right, up, or down", 16), focus: bool("Whether cmux should focus the markdown panel") }, ["path"]),
+			scopes: ["cmux", "markdown", "visible-ui"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxMarkdownOpenArgs(input), options),
+		},
+		{
+			name: "cmux_markdown_preview",
+			label: "cmux markdown preview",
+			description: "Alias for cmux_markdown_open, kept for agents that ask to preview Markdown.",
+			parameters: schema({ path: str("Markdown file path", MAX_MARKDOWN_PATH_CHARS), workspace: str("Optional workspace ref or UUID", 128), surface: str("Optional source surface ref or UUID", 128), window: str("Optional window ref or UUID", 128), direction: str("left, right, up, or down", 16), focus: bool("Whether cmux should focus the markdown panel") }, ["path"]),
+			scopes: ["cmux", "markdown", "visible-ui"],
+			execute: async (_toolCallId, input) => executeBuiltArgs(() => buildCmuxMarkdownOpenArgs(input), options),
 		},
 		{
 			name: "cmux_browser_open",

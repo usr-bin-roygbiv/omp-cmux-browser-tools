@@ -1,7 +1,7 @@
 {
   "name": "omp-cmux-browser-tools",
-  "version": "0.1.0",
-  "description": "OMP/Pi extension and custom tools for safe native cmux help and browser workflows.",
+  "version": "0.2.0",
+  "description": "OMP/Pi extension and custom tools for safe native cmux workspace, terminal, diagnostics, markdown, and browser workflows.",
   "type": "module",
   "license": "MIT",
   "homepage": "https://github.com/usr-bin-roygbiv/omp-cmux-browser-tools#readme",
@@ -44,7 +44,7 @@
     "precommit": "bun scripts/precommit.mjs"
   },
   "peerDependencies": {
-    "@oh-my-pi/pi-coding-agent": ">=15.5.7 <16"
+    "@oh-my-pi/pi-coding-agent": ">=15.5.15 <16"
   },
   "omp": {
     "extensions": [

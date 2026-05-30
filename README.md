@@ -1,11 +1,11 @@
 # omp-cmux-browser-tools
 
-`omp-cmux-browser-tools` exposes a small, safe cmux help and browser tool layer over native `cmux` surfaces for OMP and Pi coding-agent sessions.
+`omp-cmux-browser-tools` exposes safe, typed cmux tools over native cmux workspaces, surfaces, terminals, notifications, markdown previews, settings, and browser surfaces for OMP and Pi coding-agent sessions.
 
-The package supports two current install surfaces, both of which expose the same eighteen model-callable OMP tools:
+The package supports two current install surfaces, both of which expose the same model-callable OMP tools:
 
 - package/plugin installs through `package.json` `omp.extensions` and `pi.extensions`; the extension calls `pi.registerTool(...)`
-- OMP marketplace installs through the custom-tool factory in `tools/cmux-browser-tools/index.ts`
+- OMP marketplace/custom-tool installs through `tools/cmux-browser-tools/index.ts`
 
 It is published from the anonymous Roy GitHub identity at `usr-bin-roygbiv/omp-cmux-browser-tools`. It is not published to npm.
 
@@ -18,6 +18,24 @@ After installation, these are OMP/Pi tool calls, not slash commands or prose-onl
 | Tool | Purpose |
 | --- | --- |
 | `cmux_help` | Read bounded cmux CLI help for terminal I/O, layout, browser, notification, markdown, and session commands. |
+| `cmux_identify` | Identify caller/focused cmux workspace, window, pane, and surface refs. |
+| `cmux_workspace_new` | Create a cmux workspace with optional cwd, layout, or command; no focus change by default. |
+| `cmux_workspace_tree` | Read the cmux window/workspace/pane/surface hierarchy. |
+| `cmux_workspace_close` | Close an explicit workspace the agent owns. |
+| `cmux_surface_new` | Create a terminal or browser surface in an explicit pane/workspace; no focus change by default. |
+| `cmux_surface_close` | Close an explicit surface the agent owns. |
+| `cmux_surface_read` | Read bounded text from an explicit terminal surface. |
+| `cmux_terminal_open` | Open an owned terminal workspace and optionally send a bounded command. |
+| `cmux_terminal_send` | Send bounded text to an explicit owned terminal surface. |
+| `cmux_sidebar_state` | Read sidebar cwd/status/progress/log metadata. |
+| `cmux_notifications_list` | List queued cmux notifications with redaction. |
+| `cmux_notification_dismiss` | Dismiss one notification by UUID or already-read notifications. |
+| `cmux_surface_resume_show` | Show public resume metadata for a surface. |
+| `cmux_surface_resume_clear` | Clear resume metadata for a surface. |
+| `cmux_config_check` | Validate cmux configuration JSONC syntax. |
+| `cmux_reload_config` | Reload Ghostty and cmux configuration in the running app. |
+| `cmux_markdown_open` | Open a Markdown file in a formatted cmux viewer panel. |
+| `cmux_markdown_preview` | Alias for `cmux_markdown_open` for preview wording. |
 | `cmux_browser_open` | Open a native visible cmux browser surface for an `http:` or `https:` URL. |
 | `cmux_browser_get_url` | Read the current URL from an explicit browser surface. |
 | `cmux_browser_goto` | Navigate an existing browser surface to an `http:` or `https:` URL and return a post-navigation snapshot. |
@@ -38,9 +56,9 @@ After installation, these are OMP/Pi tool calls, not slash commands or prose-onl
 
 ## Requirements
 
-- OMP/Pi `15.5.7` or newer in the `15.x` line.
+- OMP/Pi `15.5.15` or newer in the `15.x` line.
 - `cmux` installed and available on `PATH` for the agent process.
-- A local cmux workspace capable of opening browser surfaces.
+- A local cmux workspace capable of opening browser and terminal surfaces.
 
 ## Install
 
@@ -79,12 +97,14 @@ Keep local absolute paths out of committed OMP/Pi configuration. If you use a lo
 
 - Commands are executed with `spawnSync("cmux", args)` style argv arrays; user input is never shell-interpolated.
 - `cmux_help` is read-only and accepts only bounded command-token paths such as `browser` or `browser wait`.
-- Navigation/open accepts only absolute `http:` and `https:` URLs.
+- Browser navigation/open accepts only absolute `http:` and `https:` URLs.
 - Every non-open browser tool requires an explicit browser `surface` ref (`surface:<number>` or UUID).
-- Optional workspace/window refs are validated as `workspace:<number>`, `window:<number>`, or UUID.
+- Workspace, window, pane, and surface refs are validated by typed ref kind or UUID.
+- Focus defaults to false for workspace, surface, terminal, browser, and markdown creation.
 - Find/get/is/action inputs use bounded enums and max lengths; no arbitrary browser eval is exposed.
+- `cmux_terminal_send` requires an explicit surface and is intended only for owned scratch terminals.
 - Screenshot output is restricted to `_artifacts-local/omp-cmux-browser-tools-eval/`; path traversal and arbitrary absolute paths are rejected.
-- Waits and command execution use bounded timeouts.
+- Waits, screen reads, command strings, paths, and returned output use bounded limits.
 - Returned stdout/stderr are redacted and truncated before being handed back to OMP/Pi.
 - This package does not expose arbitrary shell execution, standalone JavaScript eval, downloads/uploads, proxy changes, cookies/storage export, network interception, browser state save/load, profile import, tab lifecycle, or arbitrary cmux command execution. `cmux_browser_wait` accepts only load state, selector, text, exact URL, or URL-substring waits; it does not expose cmux's JavaScript `--function` wait path.
 
@@ -96,7 +116,7 @@ bun run test:interactive
 CMUX_EVAL_MODEL=gpt-proxy/gpt-5.5 bun run eval:cmux-browsergym
 ```
 
-`bun run test:interactive` drives every exposed tool against a real cmux browser surface and writes screenshot proof under `_artifacts-local/omp-cmux-browser-tools-eval/<run-id>/`. `bun run eval:cmux-browsergym` serves the same deterministic fixture over `127.0.0.1` and launches dev OMP in JSON mode with `--plugin-dir .`, `--auto-approve`, and a bounded tool list so provider/model tool calls are recorded as artifacts.
+`bun run test:interactive` drives every exposed tool against owned scratch cmux workspaces/surfaces and writes screenshot proof under `_artifacts-local/omp-cmux-browser-tools-eval/<run-id>/`. `bun run eval:cmux-browsergym` serves the same deterministic fixture over `127.0.0.1` and launches dev OMP in JSON mode with `--plugin-dir .`, `--auto-approve`, and a bounded tool list so provider/model tool calls are recorded as artifacts.
 
 The eval is BrowserGym/MiniWoB action-space-compatible local coverage through OMP + native cmux browser surfaces. It is intentionally not BrowserGym's native Playwright environment because this plugin's contract is to let OMP drive visible cmux surfaces.
 
@@ -116,13 +136,13 @@ The maintained interactive smoke and eval fixtures live under `evals/browsergym-
 
 The full interactive smoke verifies:
 
-1. `cmux_help`, open, URL read, wait, and snapshot.
-2. Navigation through goto, back, forward, and reload.
-3. Read-only inspection through find, get, and is.
-4. Form mutation through fill/click, keyboard submission through press, dropdown selection through select, and offscreen movement through scroll.
-5. Screenshot artifact creation through `cmux_browser_screenshot`.
+1. cmux help, identify, tree, sidebar, notifications, config check, config reload, and resume metadata tools.
+2. Owned workspace/surface/terminal creation, terminal send/read, and cleanup.
+3. Markdown viewer open/preview against an owned scratch workspace.
+4. Browser open, URL read, wait, snapshot, navigation through goto/back/forward/reload, and screenshot artifact creation.
+5. Browser inspection and interaction through find, get, is, fill/click, press, select, and scroll.
 
-All visual proof paths are reported in the run summary JSON.
+All proof paths are reported in the run summary JSON.
 
 ## Public metadata
 

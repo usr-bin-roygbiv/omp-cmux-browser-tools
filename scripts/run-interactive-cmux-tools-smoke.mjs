@@ -22,7 +22,25 @@ const EXPECTED_TOOL_NAMES = [
   "cmux_browser_select",
   "cmux_browser_snapshot",
   "cmux_browser_wait",
+  "cmux_config_check",
   "cmux_help",
+  "cmux_identify",
+  "cmux_markdown_open",
+  "cmux_markdown_preview",
+  "cmux_notification_dismiss",
+  "cmux_notifications_list",
+  "cmux_reload_config",
+  "cmux_sidebar_state",
+  "cmux_surface_close",
+  "cmux_surface_new",
+  "cmux_surface_read",
+  "cmux_surface_resume_clear",
+  "cmux_surface_resume_show",
+  "cmux_terminal_open",
+  "cmux_terminal_send",
+  "cmux_workspace_close",
+  "cmux_workspace_new",
+  "cmux_workspace_tree",
 ];
 
 function assert(condition, message) {
@@ -47,6 +65,7 @@ function toolText(result) {
 }
 
 const SURFACE_KEYS = ["surface", "surface_ref", "browser_surface_ref", "target_surface_ref", "openedSurface"];
+const WORKSPACE_KEYS = ["workspace", "workspace_ref", "target_workspace_ref", "openedWorkspace"];
 
 function findSurface(value) {
   if (typeof value === "string") {
@@ -78,6 +97,54 @@ function extractSurface(result) {
   return findSurface(result?.details?.stdoutJson) ?? findSurface(result?.details) ?? findSurface(toolText(result));
 }
 
+function findWorkspace(value) {
+  if (typeof value === "string") {
+    const match = value.match(/workspace:\d+/);
+    return match?.[0];
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findWorkspace(item);
+      if (found) return found;
+    }
+    return undefined;
+  }
+  if (value && typeof value === "object") {
+    for (const key of WORKSPACE_KEYS) {
+      const candidate = value[key];
+      if (typeof candidate === "string" && /^workspace:\d+$/.test(candidate)) return candidate;
+    }
+    for (const item of Object.values(value)) {
+      const found = findWorkspace(item);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
+function extractWorkspace(result) {
+  return findWorkspace(result?.details?.stdoutJson) ?? findWorkspace(result?.details) ?? findWorkspace(toolText(result));
+}
+
+function extractTerminalSurfaceFromWorkspace(result, workspace) {
+  const tree = result?.details?.stdoutJson;
+  const windows = Array.isArray(tree?.windows) ? tree.windows : [];
+  for (const window of windows) {
+    const workspaces = Array.isArray(window?.workspaces) ? window.workspaces : [];
+    for (const candidateWorkspace of workspaces) {
+      if (candidateWorkspace?.ref !== workspace) continue;
+      const panes = Array.isArray(candidateWorkspace?.panes) ? candidateWorkspace.panes : [];
+      for (const pane of panes) {
+        const surfaces = Array.isArray(pane?.surfaces) ? pane.surfaces : [];
+        for (const candidateSurface of surfaces) {
+          if (candidateSurface?.type === "terminal" && typeof candidateSurface?.tty === "string" && typeof candidateSurface?.ref === "string") return candidateSurface.ref;
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
 function commandFailed(name, result) {
   return `${name} failed: ${toolText(result) || JSON.stringify(result?.details ?? result)}`;
 }
@@ -94,6 +161,7 @@ function summarizeResult(result) {
       selector: result.details?.selector,
       target: result.details?.target,
       outPath: result.details?.outPath,
+      workspace: result.details?.workspace,
       stdoutJson: result.details?.stdoutJson,
       stdout: typeof result.details?.stdout === "string" ? result.details.stdout.slice(0, 1000) : undefined,
       stderr: typeof result.details?.stderr === "string" ? result.details.stderr.slice(0, 1000) : undefined,
@@ -178,7 +246,10 @@ async function main() {
   const toolCalls = [];
   const screenshots = [];
   let surface;
+  let terminalSurface;
   let scratchWorkspace;
+  let terminalWorkspace;
+  let notificationId;
   let sequence = 0;
 
   async function call(name, input) {
@@ -203,7 +274,62 @@ async function main() {
     const navUrl = `${server.origin}/fixture.html?view=nav-branch`;
 
     await call("cmux_help", { command: "browser" });
-    scratchWorkspace = createScratchWorkspace();
+    const identified = await call("cmux_identify", {});
+    const callerSurface = identified.details?.stdoutJson?.caller?.surface_ref ?? identified.details?.stdoutJson?.focused?.surface_ref;
+    if (callerSurface) await call("cmux_surface_read", { surface: callerSurface, lines: 20 });
+
+    const createdWorkspace = await call("cmux_workspace_new", { name: "omp-cmux-tools-smoke-" + Date.now(), focus: false });
+    scratchWorkspace = extractWorkspace(createdWorkspace);
+    assert(scratchWorkspace, "could not extract scratch workspace from " + toolText(createdWorkspace));
+    await call("cmux_workspace_tree", { workspace: scratchWorkspace });
+    await call("cmux_sidebar_state", { workspace: scratchWorkspace });
+    await call("cmux_notifications_list", {});
+    await call("cmux_config_check", {});
+
+    const markdownPath = path.join(runRoot, "preview.md");
+    await writeFile(markdownPath, "# cmux markdown smoke\n\nTyped tool preview.\n");
+    await call("cmux_markdown_open", { path: markdownPath, workspace: scratchWorkspace, focus: false });
+    await call("cmux_markdown_preview", { path: markdownPath, workspace: scratchWorkspace, direction: "down", focus: false });
+
+    const inactiveTerminalOpened = await call("cmux_surface_new", { type: "terminal", workspace: scratchWorkspace, focus: false });
+    terminalSurface = extractSurface(inactiveTerminalOpened);
+    assert(terminalSurface, "could not extract inactive terminal surface from " + toolText(inactiveTerminalOpened));
+    await call("cmux_surface_close", { workspace: scratchWorkspace, surface: terminalSurface });
+    terminalSurface = undefined;
+
+    const terminalWorkspaceOpened = await call("cmux_terminal_open", {
+      name: "omp-cmux-terminal-open-smoke",
+      command: "printf cmux-terminal-open-smoke",
+      focus: false,
+    });
+    terminalWorkspace = extractWorkspace(terminalWorkspaceOpened);
+    assert(terminalWorkspace, "could not extract terminal workspace from " + toolText(terminalWorkspaceOpened));
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      await delay(1000);
+      const terminalTree = await call("cmux_workspace_tree", { workspace: terminalWorkspace });
+      terminalSurface = extractTerminalSurfaceFromWorkspace(terminalTree, terminalWorkspace);
+      if (terminalSurface) break;
+    }
+    assert(terminalSurface, "could not extract terminal surface with tty from terminal workspace");
+    await call("cmux_terminal_send", { workspace: terminalWorkspace, surface: terminalSurface, text: "printf cmux-terminal-send-smoke", enter: true });
+    await delay(1000);
+    await call("cmux_surface_read", { workspace: terminalWorkspace, surface: terminalSurface, scrollback: true, lines: 80 });
+    await call("cmux_surface_resume_show", { workspace: terminalWorkspace, surface: terminalSurface });
+    await call("cmux_surface_resume_clear", { workspace: terminalWorkspace, surface: terminalSurface });
+    await call("cmux_workspace_close", { workspace: terminalWorkspace });
+    terminalSurface = undefined;
+    terminalWorkspace = undefined;
+
+    const notify = Bun.spawnSync(["cmux", "--json", "notify", "--title", "omp-cmux-browser-tools-smoke", "--body", "owned temporary notification"], { stdout: "pipe", stderr: "pipe" });
+    assert(notify.exitCode === 0, "failed to create owned notification: " + (notify.stderr?.toString() ?? ""));
+    const notificationList = await call("cmux_notifications_list", {});
+    const notifications = Array.isArray(notificationList.details?.stdoutJson) ? notificationList.details.stdoutJson : [];
+    notificationId = notifications.find(item => item?.title === "omp-cmux-browser-tools-smoke" && item?.body === "owned temporary notification")?.id;
+    assert(typeof notificationId === "string", "could not find owned notification id in list-notifications output");
+    await call("cmux_notification_dismiss", { id: notificationId });
+    notificationId = undefined;
+    await call("cmux_reload_config", {});
+
     const opened = await call("cmux_browser_open", { url: homeUrl, workspace: scratchWorkspace, focus: false });
     surface = extractSurface(opened);
     assert(surface, `could not extract opened browser surface from ${toolText(opened)}`);
@@ -273,6 +399,11 @@ async function main() {
     await call("cmux_browser_scroll", { surface, dy: 1700 });
     await screenshot("scrolled-offscreen");
 
+    await call("cmux_surface_close", { workspace: scratchWorkspace, surface });
+    surface = undefined;
+    await call("cmux_workspace_close", { workspace: scratchWorkspace });
+    scratchWorkspace = undefined;
+
     const exercised = new Set(toolCalls.map(call => call.name));
     const missing = EXPECTED_TOOL_NAMES.filter(name => !exercised.has(name));
     assert(missing.length === 0, `interactive smoke did not exercise tools: ${missing.join(", ")}`);
@@ -295,7 +426,10 @@ async function main() {
     await writeFile(path.join(runRoot, "summary.json"), JSON.stringify(summary, null, 2) + "\n");
     console.log(JSON.stringify(summary, null, 2));
   } finally {
+    if (notificationId) Bun.spawnSync(["cmux", "--json", "dismiss-notification", "--id", notificationId], { stdout: "pipe", stderr: "pipe" });
     closeSurface(surface);
+    closeSurface(terminalSurface);
+    closeWorkspace(terminalWorkspace);
     closeWorkspace(scratchWorkspace);
     await server.close();
   }

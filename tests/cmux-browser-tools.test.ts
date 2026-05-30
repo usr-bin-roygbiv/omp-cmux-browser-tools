@@ -20,6 +20,23 @@ import cmuxBrowserTools, {
   buildCmuxBrowserToolSpecs,
   buildCmuxBrowserWaitArgs,
   buildCmuxHelpArgs,
+  buildCmuxIdentifyArgs,
+  buildCmuxWorkspaceNewArgs,
+  buildCmuxWorkspaceTreeArgs,
+  buildCmuxWorkspaceCloseArgs,
+  buildCmuxSurfaceNewArgs,
+  buildCmuxSurfaceCloseArgs,
+  buildCmuxSurfaceReadArgs,
+  buildCmuxTerminalOpenArgs,
+  buildCmuxTerminalSendArgs,
+  buildCmuxSidebarStateArgs,
+  buildCmuxNotificationsListArgs,
+  buildCmuxNotificationDismissArgs,
+  buildCmuxSurfaceResumeShowArgs,
+  buildCmuxSurfaceResumeClearArgs,
+  buildCmuxConfigCheckArgs,
+  buildCmuxReloadConfigArgs,
+  buildCmuxMarkdownOpenArgs,
   runCmuxCommand,
   sanitizeToolText,
   type CmuxRunner,
@@ -105,7 +122,25 @@ const EXPECTED_TOOL_NAMES = [
   "cmux_browser_select",
   "cmux_browser_snapshot",
   "cmux_browser_wait",
+  "cmux_config_check",
   "cmux_help",
+  "cmux_identify",
+  "cmux_markdown_open",
+  "cmux_markdown_preview",
+  "cmux_notification_dismiss",
+  "cmux_notifications_list",
+  "cmux_reload_config",
+  "cmux_sidebar_state",
+  "cmux_surface_close",
+  "cmux_surface_new",
+  "cmux_surface_read",
+  "cmux_surface_resume_clear",
+  "cmux_surface_resume_show",
+  "cmux_terminal_open",
+  "cmux_terminal_send",
+  "cmux_workspace_close",
+  "cmux_workspace_new",
+  "cmux_workspace_tree",
 ];
 
 describe("cmux browser command builders", () => {
@@ -210,6 +245,74 @@ describe("cmux browser command builders", () => {
       "420",
       "--snapshot-after",
     ]);
+  });
+
+
+
+  test("builds workspace and surface cmux commands", () => {
+    expect(buildCmuxIdentifyArgs({ workspace: "workspace:2", surface: "surface:7", window: "window:3", noCaller: true })).toEqual([
+      "identify",
+      "--workspace",
+      "workspace:2",
+      "--surface",
+      "surface:7",
+      "--window",
+      "window:3",
+      "--no-caller",
+    ]);
+    expect(buildCmuxWorkspaceNewArgs({ name: "Scratch", cwd: ".", command: "echo ok", focus: false })).toEqual([
+      "new-workspace",
+      "--name",
+      "Scratch",
+      "--cwd",
+      ".",
+      "--command",
+      "echo ok",
+      "--focus",
+      "false",
+    ]);
+    expect(buildCmuxWorkspaceTreeArgs({ all: true, workspace: "workspace:2" })).toEqual(["tree", "--json", "--all", "--workspace", "workspace:2"]);
+    expect(buildCmuxWorkspaceCloseArgs({ workspace: "workspace:2", window: "window:1" })).toEqual(["close-workspace", "--workspace", "workspace:2", "--window", "window:1"]);
+    expect(buildCmuxSurfaceNewArgs({ type: "browser", pane: "pane:4", url: "https://example.com", focus: true })).toEqual([
+      "new-surface",
+      "--type",
+      "browser",
+      "--pane",
+      "pane:4",
+      "--url",
+      "https://example.com/",
+      "--focus",
+      "true",
+    ]);
+    expect(buildCmuxSurfaceCloseArgs({ surface: "surface:7" })).toEqual(["close-surface", "--surface", "surface:7"]);
+    expect(buildCmuxSurfaceReadArgs({ surface: "surface:7", lines: 9999, scrollback: true })).toEqual(["read-screen", "--surface", "surface:7", "--lines", "500", "--scrollback"]);
+  });
+
+  test("builds diagnostics, notification, resume, terminal, and markdown commands", () => {
+    expect(buildCmuxTerminalOpenArgs({ name: "Term", cwd: ".", command: "pwd", focus: true })).toEqual([
+      "new-workspace",
+      "--name",
+      "Term",
+      "--cwd",
+      ".",
+      "--command",
+      "pwd",
+      "--focus",
+      "true",
+    ]);
+    expect(buildCmuxTerminalSendArgs({ workspace: "workspace:2", surface: "surface:7", text: "echo ok", enter: true })).toEqual(["send", "--surface", "surface:7", "--workspace", "workspace:2", "--", "echo ok\n"]);
+    expect(buildCmuxSidebarStateArgs({ workspace: "workspace:2" })).toEqual(["sidebar-state", "--workspace", "workspace:2"]);
+    expect(buildCmuxNotificationsListArgs({})).toEqual(["list-notifications"]);
+    expect(buildCmuxNotificationDismissArgs({ id: "2792A2F9-D330-4DD9-BCBB-1FEEFB0790F3" })).toEqual(["dismiss-notification", "--id", "2792A2F9-D330-4DD9-BCBB-1FEEFB0790F3"]);
+    expect(buildCmuxNotificationDismissArgs({ allRead: true })).toEqual(["dismiss-notification", "--all-read"]);
+    expect(buildCmuxSurfaceResumeShowArgs({ surface: "surface:7" })).toEqual(["surface", "resume", "show", "--json", "--surface", "surface:7"]);
+    expect(buildCmuxSurfaceResumeClearArgs({ surface: "surface:7" })).toEqual(["surface", "resume", "clear", "--surface", "surface:7"]);
+    expect(buildCmuxConfigCheckArgs({ path: ".cmux/cmux.json" })).toEqual(["config", "check", "--path", ".cmux/cmux.json"]);
+    expect(buildCmuxReloadConfigArgs({})).toEqual(["reload-config"]);
+    expect(buildCmuxMarkdownOpenArgs({ path: "README.md", direction: "down", focus: false })).toEqual(["markdown", "open", "README.md", "--direction", "down", "--focus", "false"]);
+    expect(() => buildCmuxWorkspaceNewArgs({ layout: "{bad" })).toThrow("valid JSON");
+    expect(() => buildCmuxSurfaceNewArgs({ type: "browser", url: "file:///tmp/x" })).toThrow("http: or https:");
+    expect(() => buildCmuxTerminalSendArgs({ surface: "workspace:2", text: "x" })).toThrow("surface:<number> or a UUID");
   });
 
   test("builds read-only inspection commands", () => {
